@@ -5,6 +5,10 @@
         "istream": "cpp",
         "ostream": "cpp",
         "sstream": "cpp",
-        "functional": "cpp"
+        "functional": "cpp",
+        "*.tcc": "c",
+        "radiolib_convenience.h": "c",
+        "ssd1306wire.h": "c",
+        "funkbox_haltec.h": "c"
     }
 }

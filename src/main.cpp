@@ -1,12 +1,14 @@
+#define RADIOLIB_DEBUG_BASIC true 
+#define RADIOLIB_DEBUG_HEXDUMP true
 #define HELTEC_POWER_BUTTON // must be before "#include <heltec_unofficial.h>"
 #include "heltec_unofficial.h"
-
+#include "esp32-hal.h"
 #include "messages.h"
 
 #define MAX_ITEMS 32
 #define MAX_READ_BYTES 100
 
-#define INTERVAL 10000
+#define INTERVAL 2000
 #define MAX_TIMEOUT 8000
 
 // Frequency in MHz. Keep the decimal point to designate float.
@@ -29,10 +31,12 @@
 
 payloaded_message *tx_queue[MAX_ITEMS];
 uint64_t message_counter = 0;
-uint64_t tx_time = 0;
-uint64_t last_rx = 0;
+unsigned long tx_time = 0;
+unsigned long last_rx = 0;
+unsigned long last_tx = 0;
 
-boolean received = false;
+boolean rx_in_progress = false;
+volatile boolean received = false;
 String rxString;
 
 //
@@ -79,29 +83,27 @@ void comm_enqueue_message(struct payloaded_message *message)
     message_counter = 0;
 }
 
-void transmit_message(struct payloaded_message *message)
-{
-  Serial.printf("Transmitting MSG: %s, %d", message->command, message->seq_nr);
-  
-  radio.clearDio1Action();
-  heltec_led(50);
-  
-  char output[200];
-  sprintf(output, "%s|%d|%s", message->command, message->seq_nr, message->payload);
+void transmit_message(payloaded_message *messages[], int size) {
+  char combined_output[1000];
+  memset(combined_output, 0, 1000);
+
+  for (int i = 0; i < size; i++) {
+    char output[200];
+    sprintf(output, "%s|%d|%s>", messages[i]->command, messages[i]->seq_nr, messages[i]->payload);
+    strcat(combined_output, output);
+  }
 
   tx_time = millis();
-  RADIOLIB(radio.transmit(output));
+  RADIOLIB(radio.transmit(combined_output));
   tx_time = millis() - tx_time;
   heltec_led(0);
-  if (_radiolib_status == RADIOLIB_ERR_NONE)
-  {
+  if (_radiolib_status == RADIOLIB_ERR_NONE) {
     both.printf("OK (%i ms)\n", (int)tx_time);
-    message->last_sent = millis();
   }
-  else
-  {
+  else {
     both.printf("fail (%i)\n", _radiolib_status);
   }
+  delay(500);
 
   radio.setDio1Action(rx);
   RADIOLIB_OR_HALT(radio.startReceive(RADIOLIB_SX126X_RX_TIMEOUT_INF));
@@ -118,6 +120,7 @@ void send_ack(uint8_t seqNr)
   comm_enqueue_message(message);
 }
 
+// handle a received message. right now this is just removing messages from the queue if they were ACKed
 void handle_received_message(char* message_type, u_int8_t seq_nr, char* payload) {
   if(strcmp(message_type, "ACK") == 0) {
     Serial.printf("Got ACK Message for message %s\n", payload);
@@ -133,48 +136,84 @@ void handle_received_message(char* message_type, u_int8_t seq_nr, char* payload)
   }
 }
 
+// splits the string into various sub - messages and processes them
+// 
 void process_received_message(const char *message)
 {
+  if(message == NULL || strlen(message) == 0) {
+    return ;
+  }
+
   both.printf("Rcv: %s\n", message);
   char updateable_message[strlen(message)];
   strcpy(updateable_message, message);
 
-  char *message_type = strtok(updateable_message, "|");
-  u_int8_t sequence_number = atoi(strtok(NULL, "|"));
-  char *payload = strtok(NULL, "|");
-  both.printf("Received: %s(%d): %s\n", message_type, sequence_number, payload);
-  if (strcmp(message_type, "ACK") == 0) {
-    Serial.printf("not ACKING the message %s\n", message);
-  } else {
-    Serial.printf("ACKING the message %s\n", message);
-    send_ack(sequence_number);
-  }
+  char *saveptr1, *saveptr2;
+  char *single_msg = strtok_r(updateable_message, ">", &saveptr1);
 
-  handle_received_message(message_type, sequence_number, payload);
+  while(single_msg != NULL) {
+    char *message_type = strtok_r(single_msg, "|", &saveptr2);
+    u_int8_t sequence_number = atoi(strtok_r(NULL, "|", &saveptr2));
+    char *payload = strtok_r(NULL, "|", &saveptr2);
+    
+    both.printf("Received: %s(%d): %s\n", message_type, sequence_number, payload);
+    if (strcmp(message_type, "ACK") == 0) {
+      Serial.printf("not ACKING the message %s\n", message);
+    } else {
+      Serial.printf("ACKING the message %s\n", message);
+      send_ack(sequence_number);
+    }
+    handle_received_message(message_type, sequence_number, payload);
+    single_msg = strtok_r(NULL, ">", &saveptr1);
+  }
 }
 
+// main communicator loop. processes the queue by sending out messages and reacts
+// if the received flag was raised by interrupt.
 void comm_loop()
 {
-  for (int i = 0; i < MAX_ITEMS; i++)
-  {
-    if (tx_queue[i] != NULL &&
-        tx_queue[i]->last_sent < (millis() - 2000))
-    {
-      transmit_message(tx_queue[i]);
-      tx_queue[i]->last_sent = millis();
-
-      if (strcmp(tx_queue[i]->command, "ACK") == 0) {
-        Serial.println("Not waiting for ACK for ACK");
-        free(tx_queue[i]);
-        tx_queue[i] = NULL;
+  if(millis() > (last_tx + INTERVAL)) {
+    payloaded_message* outgoing_messages[MAX_ITEMS];
+    int index = 0;
+    for (int i = 0; i < MAX_ITEMS; i++) {
+      if (tx_queue[i] != NULL) {
+        tx_queue[i]->last_sent = millis();
+        outgoing_messages[index] = tx_queue[i];
+        index++;
+        if (strcmp(tx_queue[i]->command, "ACK") == 0) {
+          tx_queue[i] = NULL;
+        }
       }
     }
+
+    if(index > 0) {
+      Serial.printf("Sending %d messages", index);
+      transmit_message(outgoing_messages, index);
+    }
+ 
+    for (int i = 0; i < index; i++) {
+      if (strcmp(outgoing_messages[i]->command, "ACK") == 0) {
+        Serial.println("Not waiting for ACK for ACK");
+        free(tx_queue[i]);
+      }
+    }
+    last_tx = millis();
   }
 
   if (received)
   {
     received = false;
+
+    size_t packet_length = radio.getPacketLength();
+    Serial.printf("received %d bytes\n", packet_length);
+    
+    if (packet_length == 0) {
+      RADIOLIB_OR_HALT(radio.startReceive(RADIOLIB_SX126X_RX_TIMEOUT_INF));
+      return;
+    }
+
     radio.readData(rxString);
+  
     if (_radiolib_status == RADIOLIB_ERR_NONE)
     {
       both.printf("RX [%s]\n", rxString.c_str());
@@ -199,6 +238,9 @@ int pos = 0;
 
 void serial_parse_input(char *message)
 {
+  if (strlen(message) < 3) {
+    return;
+  }
   char* message_type = strtok(message, "|");
   char* payload = strtok(NULL, "|");
   payloaded_message* payload_message = (payloaded_message*)malloc(sizeof(payloaded_message));

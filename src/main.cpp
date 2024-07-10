@@ -1,9 +1,10 @@
-#define RADIOLIB_DEBUG_BASIC true 
-#define RADIOLIB_DEBUG_HEXDUMP true
 #define HELTEC_POWER_BUTTON // must be before "#include <heltec_unofficial.h>"
 #include "heltec_unofficial.h"
 #include "esp32-hal.h"
 #include "messages.h"
+#include <stdint.h>
+
+
 
 #define MAX_ITEMS 32
 #define MAX_READ_BYTES 100
@@ -45,6 +46,18 @@ String rxString;
 //
 //
 
+void freePayloadedMessage(payloaded_message* payloaded_message) {
+  free(payloaded_message->command);
+  free(payloaded_message->payload);
+  free(payloaded_message);
+}
+
+void printBuffer(char* buffer, size_t start, size_t count) {
+    for (int i = start; i < start + count; i++) {
+        Serial.printf("%02X ", buffer[i]);
+    }
+}
+
 void rx()
 {
   received = true;
@@ -52,7 +65,11 @@ void rx()
 
 void comm_setup()
 {
-  memset(tx_queue, 0, sizeof(payloaded_message *) * MAX_ITEMS);
+  //memset(tx_queue, 0, sizeof(payloaded_message *) * MAX_ITEMS);
+  for (int i = 0; i < MAX_ITEMS; i ++) {
+    tx_queue[i] = NULL;
+  }
+
   both.println("Radio init");
   RADIOLIB_OR_HALT(radio.begin());
   // Set the callback function for received packets
@@ -83,15 +100,29 @@ void comm_enqueue_message(struct payloaded_message *message)
     message_counter = 0;
 }
 
+int getMessageLen(payloaded_message* message) {
+  return strlen(message->command) + strlen(message->payload) + 10 + 4;
+}
+
 void transmit_message(payloaded_message *messages[], int size) {
-  char combined_output[1000];
-  memset(combined_output, 0, 1000);
+  int len = 0;
+  for (int i = 0; i < size; i++) {
+    len += getMessageLen(messages[i]);
+  }
+
+  char* combined_output = (char*) malloc(sizeof(char) * len+1);
+  memset(combined_output, 0, len);
 
   for (int i = 0; i < size; i++) {
-    char output[200];
+    char output[getMessageLen(messages[i])];
     sprintf(output, "%s|%d|%s>", messages[i]->command, messages[i]->seq_nr, messages[i]->payload);
     strcat(combined_output, output);
   }
+
+  printBuffer(combined_output, 0, strlen(combined_output)+1);
+
+  radio.clearDio1Action();
+  heltec_led(50);
 
   tx_time = millis();
   RADIOLIB(radio.transmit(combined_output));
@@ -103,8 +134,7 @@ void transmit_message(payloaded_message *messages[], int size) {
   else {
     both.printf("fail (%i)\n", _radiolib_status);
   }
-  delay(500);
-
+  free(combined_output);
   radio.setDio1Action(rx);
   RADIOLIB_OR_HALT(radio.startReceive(RADIOLIB_SX126X_RX_TIMEOUT_INF));
 }
@@ -113,7 +143,8 @@ void send_ack(uint8_t seqNr)
 {
   Serial.printf("Sending ack for %d\n", seqNr);
   payloaded_message *message = (payloaded_message *)malloc(sizeof(payloaded_message));
-
+  message->command = (char *) malloc(sizeof(char) * 4);
+  message->payload = (char *) malloc(sizeof(10));
   strcpy(message->command, "ACK");
   sprintf(message->payload, "%d", seqNr);
 
@@ -127,8 +158,7 @@ void handle_received_message(char* message_type, u_int8_t seq_nr, char* payload)
     u_int8_t acked_seq_nr = atoi(payload);
     for (int i = 0; i < MAX_ITEMS; i++) {      
       if (tx_queue[i] != NULL && acked_seq_nr == tx_queue[i]->seq_nr) {
-        Serial.printf("Found element, removing\n");
-        free(tx_queue[i]);
+        freePayloadedMessage(tx_queue[i]);
         tx_queue[i] = NULL;
         break;
       }
@@ -144,7 +174,7 @@ void process_received_message(const char *message)
     return ;
   }
 
-  both.printf("Rcv: %s\n", message);
+
   char updateable_message[strlen(message)];
   strcpy(updateable_message, message);
 
@@ -194,7 +224,7 @@ void comm_loop()
     for (int i = 0; i < index; i++) {
       if (strcmp(outgoing_messages[i]->command, "ACK") == 0) {
         Serial.println("Not waiting for ACK for ACK");
-        free(tx_queue[i]);
+        freePayloadedMessage(outgoing_messages[i]);
       }
     }
     last_tx = millis();
@@ -212,17 +242,21 @@ void comm_loop()
       return;
     }
 
-    radio.readData(rxString);
-  
+    char* incoming_message = (char*)malloc(sizeof(char) * packet_length + 1);
+
+    radio.readData((uint8_t *)incoming_message , packet_length);
+    incoming_message[packet_length] = '\0';
+
     if (_radiolib_status == RADIOLIB_ERR_NONE)
     {
-      both.printf("RX [%s]\n", rxString.c_str());
+      both.printf("RX [%s]\n", incoming_message);
       both.printf("  RSSI: %.2f dBm\n", radio.getRSSI());
       both.printf("  SNR: %.2f dB\n", radio.getSNR());
-      process_received_message(rxString.c_str());
+      process_received_message(incoming_message);
     }
     last_rx = millis();
     RADIOLIB_OR_HALT(radio.startReceive(RADIOLIB_SX126X_RX_TIMEOUT_INF));
+    free(incoming_message);
   }
 }
 
@@ -243,7 +277,15 @@ void serial_parse_input(char *message)
   }
   char* message_type = strtok(message, "|");
   char* payload = strtok(NULL, "|");
+
+  if(payload[strlen(payload) - 1] == 0x0D) {
+    payload[strlen(payload) - 1] = '\0';
+  }
+
   payloaded_message* payload_message = (payloaded_message*)malloc(sizeof(payloaded_message));
+  payload_message->command = (char *) malloc(sizeof(char) * strlen(message_type) + 1);
+  payload_message->payload = (char *) malloc(sizeof(char) * strlen(payload) + 1);
+    
   strcpy(payload_message->command, message_type);
   strcpy(payload_message->payload, payload);
   Serial.printf("Enqueuing message %s - %s\n", message_type, payload);  

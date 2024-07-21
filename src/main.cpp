@@ -3,8 +3,30 @@
 #include "esp32-hal.h"
 #include "messages.h"
 #include <stdint.h>
+#include <WiFi.h>
+#include <string.h>
+#include <sys/param.h>
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "freertos/event_groups.h"
+#include "esp_system.h"
+#include "esp_event.h"
+#include "esp_log.h"
+#include "nvs_flash.h"
+#include "esp_netif.h"
 
+#include "lwip/err.h"
+#include "lwip/sockets.h"
+#include "lwip/sys.h"
+#include <lwip/netdb.h>
 
+#define SSID        "funkbox-car-main"
+#define PASSWORD    "funkbox-car-main"
+
+#define UDP_PORT 3333
+
+#define MULTICAST_TTL 1
+#define MULTICAST_IPV4_ADDR "232.10.11.12"
 
 #define MAX_ITEMS 32
 #define MAX_READ_BYTES 100
@@ -39,6 +61,8 @@ unsigned long last_tx = 0;
 boolean rx_in_progress = false;
 volatile boolean received = false;
 String rxString;
+
+void socketserver_send(char *data);
 
 //
 //
@@ -163,7 +187,11 @@ void handle_received_message(char* message_type, u_int8_t seq_nr, char* payload)
         break;
       }
     }
+    return;
   }
+  char* complete_message = (char*) malloc((strlen(message_type) + strlen(payload) + 3)*sizeof(char));
+  sprintf(complete_message, "%s|%s", message_type, payload);
+  socketserver_send(complete_message);
 }
 
 // splits the string into various sub - messages and processes them
@@ -322,6 +350,264 @@ void serial_loop()
 
 //
 //
+// WLAN WLAN WLAN WLAN WLAN WLAN WLAN WLAN WLAN WLAN WLAN WLAN WLAN WLAN WLAN WLAN WLAN WLAN WLAN WLAN WLAN WLAN WLAN WLAN WLAN WLAN WLAN WLAN WLAN WLAN
+//
+//
+
+void wlan_setup() {
+  both.print("Wifi ");
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(SSID, PASSWORD);
+  do {
+    delay(2000);
+    both.print(".");
+  } while (WiFi.status() != WL_CONNECTED);
+
+  WiFi.setAutoReconnect(true);
+  WiFi.persistent(true);
+  display.printf("Wlan connected\nIP: %s\n", WiFi.localIP().toString().c_str());
+}
+
+
+int sock;
+
+/* Add a socket to the IPV4 multicast group */
+static int socket_add_ipv4_multicast_group(esp_netif_t* interface, int sock, bool assign_source_if)
+{
+    struct ip_mreq imreq = { 0 };
+    struct in_addr iaddr = { 0 };
+    int err = 0;
+    // Configure source interface
+
+    esp_netif_ip_info_t ip_info = { 0 };
+    err = esp_netif_get_ip_info(interface, &ip_info);
+    if (err != ESP_OK) {
+        both.printf("Failed to get IP address info. Error 0x%x\n", err);
+        goto err;
+    }
+    inet_addr_from_ip4addr(&iaddr, &ip_info.ip);
+
+    // Configure multicast address to listen to
+    err = inet_aton(MULTICAST_IPV4_ADDR, &imreq.imr_multiaddr.s_addr);
+    if (err != 1) {
+        both.printf("Configured IPV4 multicast address '%s' is invalid.\n", MULTICAST_IPV4_ADDR);
+        // Errors in the return value have to be negative
+        err = -1;
+        goto err;
+    }
+    both.printf("Configured IPV4 Multicast address %s\n", inet_ntoa(imreq.imr_multiaddr.s_addr));
+    if (!IP_MULTICAST(ntohl(imreq.imr_multiaddr.s_addr))) {
+        both.printf("Configured IPV4 multicast address '%s' is not a valid multicast address. This will probably not work.\n", MULTICAST_IPV4_ADDR);
+    }
+
+    if (assign_source_if) {
+        // Assign the IPv4 multicast source interface, via its IP
+        // (only necessary if this socket is IPV4 only)
+        err = setsockopt(sock, IPPROTO_IP, IP_MULTICAST_IF, &iaddr,
+                         sizeof(struct in_addr));
+        if (err < 0) {
+            both.printf("Failed to set IP_MULTICAST_IF. Error %d\n", errno);
+            goto err;
+        }
+    }
+
+    err = setsockopt(sock, IPPROTO_IP, IP_ADD_MEMBERSHIP,
+                         &imreq, sizeof(struct ip_mreq));
+    if (err < 0) {
+        both.printf("Failed to set IP_ADD_MEMBERSHIP. Error %d\n", errno);
+        goto err;
+    }
+
+ err:
+    return err;
+}
+static int create_multicast_ipv4_socket(esp_netif_t* interface)
+{
+    struct sockaddr_in saddr = { 0 };
+    int sock = -1;
+    int err = 0;
+
+    sock = socket(PF_INET, SOCK_DGRAM, IPPROTO_IP);
+    if (sock < 0) {
+        both.printf("Failed to create socket. Error %d\n", errno);
+        return -1;
+    }
+
+    // Bind the socket to any address
+    saddr.sin_family = PF_INET;
+    saddr.sin_port = htons(UDP_PORT);
+    saddr.sin_addr.s_addr = htonl(INADDR_ANY);
+    err = bind(sock, (struct sockaddr *)&saddr, sizeof(struct sockaddr_in));
+
+    uint8_t ttl = MULTICAST_TTL;
+    if (err < 0) {
+        both.printf("Failed to bind socket. Error %d\n", errno);
+        goto err;
+    }
+
+
+    // Assign multicast TTL (set separately from normal interface TTL)
+    setsockopt(sock, IPPROTO_IP, IP_MULTICAST_TTL, &ttl, sizeof(uint8_t));
+    if (err < 0) {
+        both.printf("Failed to set IP_MULTICAST_TTL. Error %d\n", errno);
+        goto err;
+    }
+
+    // this is also a listening socket, so add it to the multicast
+    // group for listening...
+    err = socket_add_ipv4_multicast_group(interface, sock, true);
+    if (err < 0) {
+        goto err;
+    }
+
+    // All set, socket is configured for sending and receiving
+    return sock;
+
+err:
+    close(sock);
+    return -1;
+}
+
+static void listen(void *pvParameters)
+{
+    esp_netif_t* interface = (esp_netif_t*) pvParameters;
+    while (1) {
+
+
+        sock = create_multicast_ipv4_socket(interface);
+        if (sock < 0) {
+            both.printf("Failed to create IPv4 multicast socket\n");
+        }
+
+        if (sock < 0) {
+            // Nothing to do!
+            vTaskDelay(5 / portTICK_PERIOD_MS);
+            continue;
+        }
+
+        // set destination multicast addresses for sending from these sockets
+        struct sockaddr_in sdestv4 = {
+            .sin_family = PF_INET,
+            .sin_port = htons(UDP_PORT),
+        };
+        // We know this inet_aton will pass because we did it above already
+        inet_aton(MULTICAST_IPV4_ADDR, &sdestv4.sin_addr.s_addr);
+
+        // Loop waiting for UDP received, and sending UDP packets if we don't
+        // see any.
+        int err = 1;
+        while (err > 0) {
+            struct timeval tv = {
+                .tv_sec = 2,
+                .tv_usec = 0,
+            };
+            fd_set rfds;
+            FD_ZERO(&rfds);
+            FD_SET(sock, &rfds);
+
+            int s = select(sock + 1, &rfds, NULL, NULL, &tv);
+            if (s < 0) {
+                both.printf("Select failed: errno %d\n", errno);
+                err = -1;
+                break;
+            } else if (s > 0) {
+                if (FD_ISSET(sock, &rfds)) {
+                    // Incoming datagram received
+                    char recvbuf[200];
+                    char raddr_name[32] = { 0 };
+                    char empty[2] = "";
+                    struct sockaddr_storage raddr; // Large enough for both IPv4 or IPv6
+                    socklen_t socklen = sizeof(raddr);
+                    int len = recvfrom(sock, recvbuf, sizeof(recvbuf)-1, 0,
+                                       (struct sockaddr *)&raddr, &socklen);
+                    if (len < 0) {
+                        both.printf("multicast recvfrom failed: errno %d\n", errno);
+                        err = -1;
+                        break;
+                    }
+
+                    if (raddr.ss_family == PF_INET) {
+                        inet_ntoa_r(((struct sockaddr_in *)&raddr)->sin_addr,
+                                    raddr_name, sizeof(raddr_name)-1);
+                    }
+                    both.printf("received %d bytes from %s: ", len, raddr_name);
+
+                    recvbuf[len] = 0; // Null-terminate whatever we received and treat like a string...
+                    both.printf("%s\n", recvbuf);
+
+                    char* message_type = strtok(recvbuf, "|");
+                    char* payload = strtok(NULL, "|");
+                    if (payload == NULL) {
+                      payload = &empty[0];
+                    }
+
+                    payloaded_message* payload_message = (payloaded_message*)malloc(sizeof(payloaded_message));
+                    payload_message->command = (char *) malloc(sizeof(char) * strlen(message_type) + 1);
+                    payload_message->payload = (char *) malloc(sizeof(char) * strlen(payload) + 1);
+
+                    strcpy(payload_message->command, message_type);
+                    strcpy(payload_message->payload, payload);
+                    Serial.printf("Enqueuing message %s - %s\n", message_type, payload);  
+                    comm_enqueue_message(payload_message);
+                }
+            }
+        }
+
+        both.printf("Shutting down socket and restarting...");
+        shutdown(sock, 0);
+        close(sock);
+    }
+
+}
+
+void socketserver_send(char *data) {
+  static int send_count;
+  
+  char addrbuf[32] = {0};
+  int len = strlen(data);
+
+  struct addrinfo hints = {
+      .ai_flags = AI_PASSIVE,
+      .ai_socktype = SOCK_DGRAM,
+  };
+  struct addrinfo *res;
+
+  hints.ai_family = AF_INET; // For an IPv4 socket
+
+  int err = getaddrinfo(MULTICAST_IPV4_ADDR,
+                        NULL,
+                        &hints,
+                        &res);
+  if (err < 0)
+  {
+    both.printf("getaddrinfo() failed for IPV4 destination address. error: %d\n", err);
+    return;
+  }
+  if (res == 0)
+  {
+    both.printf("getaddrinfo() did not return any addresses\n");
+    return;
+  }
+
+  ((struct sockaddr_in *)res->ai_addr)->sin_port = htons(UDP_PORT);
+  inet_ntoa_r(((struct sockaddr_in *)res->ai_addr)->sin_addr, addrbuf, sizeof(addrbuf) - 1);
+  both.printf("Sending to IPV4 multicast address %s:%d...\n", addrbuf, UDP_PORT);
+  err = sendto(sock, data, len, 0, res->ai_addr, res->ai_addrlen);
+  freeaddrinfo(res);
+  if (err < 0)
+  {
+    both.printf("IPV4 sendto failed. errno: %d\n", errno);
+    return;
+  }
+}
+
+void socketserver_start() {
+  esp_netif_t *netif = esp_netif_get_handle_from_ifkey("WIFI_AP_DEF");
+  xTaskCreate(&listen, "listen_task", 4096, netif, 5, NULL);
+}
+
+//
+//
 // MAIN  MAIN  MAIN  MAIN  MAIN  MAIN  MAIN  MAIN  MAIN  MAIN  MAIN  MAIN  MAIN  MAIN  MAIN  MAIN  MAIN  MAIN  MAIN  MAIN  MAIN  MAIN  MAIN  MAIN  MAIN
 //
 //
@@ -331,6 +617,8 @@ void setup()
   heltec_setup();
   serial_setup();
   comm_setup();
+  wlan_setup();
+  socketserver_start();
 }
 
 void loop()

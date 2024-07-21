@@ -9,6 +9,8 @@
         "*.tcc": "c",
         "radiolib_convenience.h": "c",
         "ssd1306wire.h": "c",
-        "funkbox_haltec.h": "c"
-    }
+        "funkbox_haltec.h": "c",
+        "algorithm": "cpp"
+    },
+    "idf.portWin": "COM5"
 }

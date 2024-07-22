@@ -62,6 +62,8 @@ boolean rx_in_progress = false;
 volatile boolean received = false;
 String rxString;
 
+char empty[2] = "";
+
 void socketserver_send(char *data);
 
 //
@@ -153,10 +155,10 @@ void transmit_message(payloaded_message *messages[], int size) {
   tx_time = millis() - tx_time;
   heltec_led(0);
   if (_radiolib_status == RADIOLIB_ERR_NONE) {
-    both.printf("OK (%i ms)\n", (int)tx_time);
+    both.printf("msg sent (%i ms)\n", (int)tx_time);
   }
   else {
-    both.printf("fail (%i)\n", _radiolib_status);
+    both.printf("msg fail (%i)\n", _radiolib_status);
   }
   free(combined_output);
   radio.setDio1Action(rx);
@@ -189,6 +191,12 @@ void handle_received_message(char* message_type, u_int8_t seq_nr, char* payload)
     }
     return;
   }
+
+  if(WiFi.status() != WL_CONNECTED) {
+    both.printf("Not forwarding message %s as WLAN is not avail", message_type);
+    return; 
+  }
+
   char* complete_message = (char*) malloc((strlen(message_type) + strlen(payload) + 3)*sizeof(char));
   sprintf(complete_message, "%s|%s", message_type, payload);
   socketserver_send(complete_message);
@@ -205,15 +213,15 @@ void process_received_message(const char *message)
 
   char updateable_message[strlen(message)];
   strcpy(updateable_message, message);
-
   char *saveptr1, *saveptr2;
   char *single_msg = strtok_r(updateable_message, ">", &saveptr1);
-
   while(single_msg != NULL) {
     char *message_type = strtok_r(single_msg, "|", &saveptr2);
     u_int8_t sequence_number = atoi(strtok_r(NULL, "|", &saveptr2));
     char *payload = strtok_r(NULL, "|", &saveptr2);
-    
+    if (payload == NULL) {
+        payload = empty;
+    }
     both.printf("Received: %s(%d): %s\n", message_type, sequence_number, payload);
     if (strcmp(message_type, "ACK") == 0) {
       Serial.printf("not ACKING the message %s\n", message);
@@ -358,13 +366,15 @@ void wlan_setup() {
   both.print("Wifi ");
   WiFi.mode(WIFI_STA);
   WiFi.begin(SSID, PASSWORD);
+  int retryCnt = 0;
+  
   do {
     delay(2000);
     both.print(".");
-  } while (WiFi.status() != WL_CONNECTED);
+  } while (WiFi.status() != WL_CONNECTED || ++retryCnt == 10);
 
   WiFi.setAutoReconnect(true);
-  WiFi.persistent(true);
+  WiFi.persistent(false);
   display.printf("Wlan connected\nIP: %s\n", WiFi.localIP().toString().c_str());
 }
 
@@ -515,7 +525,6 @@ static void listen(void *pvParameters)
                     // Incoming datagram received
                     char recvbuf[200];
                     char raddr_name[32] = { 0 };
-                    char empty[2] = "";
                     struct sockaddr_storage raddr; // Large enough for both IPv4 or IPv6
                     socklen_t socklen = sizeof(raddr);
                     int len = recvfrom(sock, recvbuf, sizeof(recvbuf)-1, 0,

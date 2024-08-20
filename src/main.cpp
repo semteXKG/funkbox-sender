@@ -20,8 +20,13 @@
 #include "lwip/sys.h"
 #include <lwip/netdb.h>
 
-#define SSID        "funkbox-car-main"
-#define PASSWORD    "funkbox-car-main"
+#if (PRIMARY)
+    #define CONFIG_SSID "funkbox-car-prim"
+    #define CONFIG_PWD "funkbox-car-prim"
+#else
+    #define CONFIG_SSID "funkbox-car-sec"
+    #define CONFIG_PWD "funkbox-car-sec"
+#endif
 
 #define UDP_PORT 3333
 
@@ -145,7 +150,7 @@ void transmit_message(payloaded_message *messages[], int size) {
     strcat(combined_output, output);
   }
 
-  printBuffer(combined_output, 0, strlen(combined_output)+1);
+ // printBuffer(combined_output, 0, strlen(combined_output)+1);
 
   radio.clearDio1Action();
   heltec_led(50);
@@ -365,7 +370,7 @@ void serial_loop()
 void wlan_setup() {
   both.print("Wifi ");
   WiFi.mode(WIFI_STA);
-  WiFi.begin(SSID, PASSWORD);
+  WiFi.begin(CONFIG_SSID, CONFIG_PWD);
   int retryCnt = 0;
   
   do {
@@ -621,6 +626,18 @@ void socketserver_start() {
 //
 //
 
+void print_status() {
+    Serial.printf("\n\n----------------------------------------------------------\n");
+    Serial.printf("|--------------------------------------------------------|\n");
+    #if PRIMARY
+        Serial.printf("|----PRIMARY---PRIMARY---PRIMARY---PRIMARY---PRIMARY-----|\n");
+    #else
+        Serial.printf("|-----SECONDARY---SECONDARY---SECONDARY---SECONDARTY-----|\n");
+    #endif
+    Serial.printf("|--------------------------------------------------------|\n");
+    Serial.printf("----------------------------------------------------------\n");
+}
+
 void setup()
 {
   heltec_setup();
@@ -628,6 +645,8 @@ void setup()
   comm_setup();
   wlan_setup();
   socketserver_start();
+  print_status();
+
 }
 
 void loop()

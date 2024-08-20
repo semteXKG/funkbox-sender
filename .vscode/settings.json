@@ -12,5 +12,5 @@
         "funkbox_haltec.h": "c",
         "algorithm": "cpp"
     },
-    "idf.portWin": "COM5"
+    "idf.portWin": "COM7"
 }

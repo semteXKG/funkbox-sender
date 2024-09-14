@@ -10,7 +10,8 @@
         "radiolib_convenience.h": "c",
         "ssd1306wire.h": "c",
         "funkbox_haltec.h": "c",
-        "algorithm": "cpp"
+        "algorithm": "cpp",
+        "system_error": "cpp"
     },
-    "idf.portWin": "COM7"
+    "idf.portWin": "COM5"
 }

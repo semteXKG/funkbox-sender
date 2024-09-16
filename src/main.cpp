@@ -82,9 +82,7 @@ void handle_command(char* message);
 //
 
 void freePayloadedMessage(payloaded_message* payloaded_message) {
-  Serial.printf("Freeing\n");
   free(payloaded_message);
-  Serial.printf("Freed\n");
 }
 
 void printBuffer(char* buffer, size_t start, size_t count) {
@@ -109,6 +107,8 @@ void comm_setup()
     tx_queue[i] = NULL;
   }
 
+  both.printf("Size: %d, %d, %d, %d", sizeof(car_sensor), sizeof(lap_data), sizeof(stint_data), sizeof(ack_msg));
+
   both.println("Radio init");
   RADIOLIB_OR_HALT(radio.begin());
   // Set the callback function for received packets
@@ -126,10 +126,31 @@ void comm_setup()
   RADIOLIB_OR_HALT(radio.startReceive(RADIOLIB_SX126X_RX_TIMEOUT_INF));
 }
 
+void clear_outdated() {
+  int cnt = 0;
+  for (int i = 0 ; i < MAX_ITEMS; i++) {
+    if(tx_queue[i] == NULL || !tx_queue[i]->remove_older_versions) {
+      continue;
+    }
+    for (int j = i; j < MAX_ITEMS; j++) {
+      if (tx_queue[j] == NULL) {
+        continue;
+      }
+      if( tx_queue[i]->type == tx_queue[j]->type && 
+          tx_queue[i]->timestamp < tx_queue[j]->timestamp) {
+        freePayloadedMessage(tx_queue[i]);
+        tx_queue[i] = NULL;
+        cnt++;
+        break;
+      }
+    }
+  }
+  //Serial.printf("Removed %d old messages\n", cnt);
+}
+
 void comm_enqueue_message(struct payloaded_message *message)
 {
   message->seq_nr = message_counter;
-  message->last_sent = 0;
   int enq_pos = message_counter % MAX_ITEMS;
   Serial.printf("[TX QUEUE] Enqueing at pos: %d\n", enq_pos);
   tx_queue[enq_pos] = message;
@@ -140,7 +161,7 @@ void comm_enqueue_message(struct payloaded_message *message)
 }
 
 int getMessageLen(payloaded_message* message) {
-  return sizeof( payloaded_message);
+  return sizeof(payloaded_message);
 }
 
 void transmit_message(payloaded_message *messages[], byte size) {
@@ -154,13 +175,14 @@ void transmit_message(payloaded_message *messages[], byte size) {
   combined_output[1] = 'T';
   combined_output[2] = size;
   for (int i = 0; i < size; i++) {
+    Serial.printf("Message %d Type %d\n", i, messages[i]->type);
     memcpy(combined_output + 3 + (i*sizeof(struct payloaded_message)), messages[i], sizeof(struct payloaded_message));
   }
 
   radio.clearDio1Action();
   heltec_led(50);
 
-  both.printf("[LR OUT] sending %d byte\n", (int)tx_time);
+  both.printf("[LR OUT] sending %d byte\n", (int)length_with_headers);
   tx_time = millis();
   RADIOLIB(radio.transmit(combined_output, length_with_headers));
   tx_time = millis() - tx_time;
@@ -234,7 +256,7 @@ void process_received_message(const char *message, size_t length)
   uint8_t cnt = message[2];
   int calculated_length = 3 + cnt * sizeof(struct payloaded_message);
 
-  Serial.printf("Recieved [%d] messages", cnt);
+  Serial.printf("Recieved [%d] messages\n", cnt);
 
   if(calculated_length != length) {
     both.printf("[LR IN] size off, \nexp [%d] got [%d]\n", calculated_length, length);
@@ -256,11 +278,11 @@ void process_received_message(const char *message, size_t length)
 void comm_loop()
 {
   if(millis() > (last_tx + INTERVAL)) {
+    clear_outdated();
     payloaded_message* outgoing_messages[MAX_ITEMS];
     int index = 0;
     for (int i = 0; i < MAX_ITEMS; i++) {
       if (tx_queue[i] != NULL) {
-        tx_queue[i]->last_sent = millis();
         outgoing_messages[index] = tx_queue[i];
         index++;
         if (do_not_ack_msg(tx_queue[i])) {
@@ -270,13 +292,12 @@ void comm_loop()
     }
 
     if(index > 0) {
-      Serial.printf("[LR OUT] Sending %d messages", index);
+      Serial.printf("[LR OUT] Sending %d messages\n", index);
       transmit_message(outgoing_messages, index);
     }
  
     for (int i = 0; i < index; i++) {
       if (do_not_ack_msg(outgoing_messages[i])) {
-        Serial.println("[LR OUT] Not waiting for ACK");
         freePayloadedMessage(outgoing_messages[i]);
       }
     }
@@ -508,10 +529,11 @@ static void listen(void *pvParameters)
                         raddr_name, sizeof(raddr_name) - 1);
           }
           both.printf("[WIN] Rcv %db from %s: \n", len, raddr_name);
-          if (recvbuf[0] == 'S' && recvbuf[1] == 'T')
-          {
-            handle_status(recvbuf + 2);
-          }
+          #if PRIMARY
+            if (recvbuf[0] == 'S' && recvbuf[1] == 'T') {
+              handle_status(recvbuf + 2);
+            }
+          #endif
         }
       }
     }
@@ -532,7 +554,7 @@ void handle_status(char* message) {
   if (memcmp(&(incoming_state.oil), &(persistent_state.oil), sizeof(car_sensor)) != 0) { 
     Serial.printf("OIL changed\n");
     payloaded_message* message = (payloaded_message*) malloc(sizeof(payloaded_message));
-    message->type = LORA_GAS;
+    message->type = LORA_OIL;
     message->requires_ack = false;
     memcpy(message->payload, &incoming_state.oil, sizeof(car_sensor));
     comm_enqueue_message(message);

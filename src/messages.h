@@ -53,13 +53,13 @@ struct stint_data {
 struct lap
 {
     int lap_no;
-    int64_t lap_time_ms;
+    int32_t lap_time_ms;
 };
 
 struct lap_data {
     int lap_no;
-    long best_lap;
-    long current_lap;
+    int32_t best_lap;
+    int32_t current_lap;
     struct lap last_laps[5];
 };
 
@@ -94,16 +94,15 @@ enum lora_type {
 
 struct payloaded_message {
     enum lora_type type;
-    uint16_t seq_nr = 0;
+    uint16_t seq_nr;
+    bool remove_older_versions;
     bool requires_ack;
+    uint32_t timestamp;
 
-    int payload_length; 
-    char payload[200];
+    char payload[52];
 
     struct car_sensor* car_sensor_data;
     struct lap_data* lap_data;
     struct stint_data* stint_data;
     struct ack_msg* ack_msg;
-    
-    long last_sent = 0;
 };

@@ -10,59 +10,72 @@
 #endif
 
 /* Enum definitions */
-typedef enum _severity {
-    severity_POSITIVE = 1,
-    severity_NORMAL = 2,
-    severity_WARN = 3,
-    severity_CRIT = 4
-} severity;
+/* https://github.com/protobuf-c/protobuf-c/wiki/Examples#strings */
+typedef enum _Proto_Severity {
+    Proto_Severity_POSITIVE = 1,
+    Proto_Severity_NORMAL = 2,
+    Proto_Severity_WARN = 3,
+    Proto_Severity_CRIT = 4
+} Proto_Severity;
 
-typedef enum _event_type {
-    event_type_EVT_NONE = 1,
-    event_type_EVT_LAP = 2,
-    event_type_EVT_TIME_REMAIN = 3,
-    event_type_EVT_STATE_CHANGE = 4
-} event_type;
+typedef enum _Proto_Event_Type {
+    Proto_Event_Type_EVT_NONE = 1,
+    Proto_Event_Type_EVT_LAP = 2,
+    Proto_Event_Type_EVT_TIME_REMAIN = 3,
+    Proto_Event_Type_EVT_STATE_CHANGE = 4
+} Proto_Event_Type;
 
-typedef enum _command_type {
-    command_type_COM_NONE = 1,
-    command_type_COM_PIT = 2,
-    command_type_COM_STINT_OVER = 3,
-    command_type_COM_TBD = 4
-} command_type;
+typedef enum _Proto_Command_Type {
+    Proto_Command_Type_COM_NONE = 1,
+    Proto_Command_Type_COM_PIT = 2,
+    Proto_Command_Type_COM_STINT_OVER = 3,
+    Proto_Command_Type_COM_FCK = 4
+} Proto_Command_Type;
+
+typedef enum _Proto_Lora_Type {
+    Proto_Lora_Type_LORA_ACK = 1,
+    Proto_Lora_Type_LORA_OIL = 2,
+    Proto_Lora_Type_LORA_WATER = 3,
+    Proto_Lora_Type_LORA_GAS = 4,
+    Proto_Lora_Type_LORA_LAP = 5,
+    Proto_Lora_Type_LORA_STINT = 6,
+    Proto_Lora_Type_LORA_COMMAND = 7
+} Proto_Lora_Type;
 
 /* Struct definitions */
-typedef struct _event {
+typedef struct _Proto_Event {
     bool has_id;
     int32_t id;
     bool has_type;
-    event_type type;
+    Proto_Event_Type type;
     bool has_severity;
-    severity severity;
+    Proto_Severity severity;
     bool has_created_at;
     int64_t created_at;
     bool has_displayed_since;
     int64_t displayed_since;
     pb_callback_t text;
-} event;
+} Proto_Event;
 
-typedef struct _command {
+typedef struct _Proto_Command {
     bool has_type;
-    command_type type;
+    Proto_Command_Type type;
+    bool has_id;
+    int32_t id;
     bool has_created;
     int64_t created;
     bool has_handled;
     int64_t handled;
-} command;
+} Proto_Command;
 
-typedef struct _car_sensor {
+typedef struct _Proto_Car_Sensor {
     bool has_temp;
     uint32_t temp;
     bool has_preassure;
     double preassure;
-} car_sensor;
+} Proto_Car_Sensor;
 
-typedef struct _stint_data {
+typedef struct _Proto_Stint_Data {
     bool has_running;
     bool running;
     bool has_enabled;
@@ -71,46 +84,84 @@ typedef struct _stint_data {
     int64_t target;
     bool has_elapsed;
     int64_t elapsed;
-} stint_data;
+} Proto_Stint_Data;
 
-typedef struct _lap {
+typedef struct _Proto_Lap {
     bool has_lap_no;
     int32_t lap_no;
     bool has_lap_time_ms;
     int64_t lap_time_ms;
-} lap;
+} Proto_Lap;
 
-typedef struct _lap_data {
+typedef struct _Proto_Lap_Data {
     bool has_lap_no;
     int32_t lap_no;
-    bool has_best_lap;
-    uint32_t best_lap;
-    bool has_current_lap;
-    uint32_t current_lap;
+    bool has_best_lap_ms;
+    uint32_t best_lap_ms;
+    bool has_current_lap_ms;
+    uint32_t current_lap_ms;
+    bool has_current_lap_snapshot_time;
+    uint32_t current_lap_snapshot_time;
     pb_callback_t laps;
-} lap_data;
+} Proto_Lap_Data;
 
-typedef struct _mcu_data {
+typedef struct _Proto_Mcu_Data {
     bool has_network_time_adjustment;
     int64_t network_time_adjustment;
     bool has_water;
-    car_sensor water;
+    Proto_Car_Sensor water;
     bool has_oil;
-    car_sensor oil;
+    Proto_Car_Sensor oil;
     bool has_gas;
-    car_sensor gas;
+    Proto_Car_Sensor gas;
     bool has_stint;
-    stint_data stint;
+    Proto_Stint_Data stint;
     bool has_lap_data;
-    lap_data lap_data;
+    Proto_Lap_Data lap_data;
     pb_callback_t events;
     pb_callback_t outgoing_commands;
-    bool has_outgoing_commands_last_idx;
-    int64_t outgoing_commands_last_idx;
     pb_callback_t incoming_commands;
-    bool has_incoming_commands_last_idx;
-    int64_t incoming_commands_last_idx;
-} mcu_data;
+} Proto_Mcu_Data;
+
+typedef struct _Proto_Update_Data {
+    bool has_water_sensor;
+    Proto_Car_Sensor water_sensor;
+    bool has_oil_sensor;
+    Proto_Car_Sensor oil_sensor;
+    bool has_gas_sensor;
+    Proto_Car_Sensor gas_sensor;
+    bool has_lap_data;
+    Proto_Lap_Data lap_data;
+    bool has_stint_data;
+    Proto_Stint_Data stint_data;
+} Proto_Update_Data;
+
+typedef struct _Proto_Ack_Data {
+    bool has_seq_nr;
+    uint32_t seq_nr;
+} Proto_Ack_Data;
+
+typedef struct _Proto_LoRa_Data {
+    bool has_seq_nr;
+    uint32_t seq_nr;
+    bool has_requires_ack;
+    bool requires_ack;
+    bool has_timestamp;
+    uint32_t timestamp;
+    bool has_update_data;
+    Proto_Update_Data update_data;
+    bool has_command_data;
+    Proto_Command command_data;
+    bool has_ack_data;
+    Proto_Ack_Data ack_data;
+} Proto_LoRa_Data;
+
+typedef struct _Proto_Message {
+    bool has_mcu_data;
+    Proto_Mcu_Data mcu_data;
+    bool has_lora_data;
+    Proto_LoRa_Data lora_data;
+} Proto_Message;
 
 
 #ifdef __cplusplus
@@ -118,22 +169,30 @@ extern "C" {
 #endif
 
 /* Helper constants for enums */
-#define _severity_MIN severity_POSITIVE
-#define _severity_MAX severity_CRIT
-#define _severity_ARRAYSIZE ((severity)(severity_CRIT+1))
+#define _Proto_Severity_MIN Proto_Severity_POSITIVE
+#define _Proto_Severity_MAX Proto_Severity_CRIT
+#define _Proto_Severity_ARRAYSIZE ((Proto_Severity)(Proto_Severity_CRIT+1))
 
-#define _event_type_MIN event_type_EVT_NONE
-#define _event_type_MAX event_type_EVT_STATE_CHANGE
-#define _event_type_ARRAYSIZE ((event_type)(event_type_EVT_STATE_CHANGE+1))
+#define _Proto_Event_Type_MIN Proto_Event_Type_EVT_NONE
+#define _Proto_Event_Type_MAX Proto_Event_Type_EVT_STATE_CHANGE
+#define _Proto_Event_Type_ARRAYSIZE ((Proto_Event_Type)(Proto_Event_Type_EVT_STATE_CHANGE+1))
 
-#define _command_type_MIN command_type_COM_NONE
-#define _command_type_MAX command_type_COM_TBD
-#define _command_type_ARRAYSIZE ((command_type)(command_type_COM_TBD+1))
+#define _Proto_Command_Type_MIN Proto_Command_Type_COM_NONE
+#define _Proto_Command_Type_MAX Proto_Command_Type_COM_FCK
+#define _Proto_Command_Type_ARRAYSIZE ((Proto_Command_Type)(Proto_Command_Type_COM_FCK+1))
 
-#define event_type_ENUMTYPE event_type
-#define event_severity_ENUMTYPE severity
+#define _Proto_Lora_Type_MIN Proto_Lora_Type_LORA_ACK
+#define _Proto_Lora_Type_MAX Proto_Lora_Type_LORA_COMMAND
+#define _Proto_Lora_Type_ARRAYSIZE ((Proto_Lora_Type)(Proto_Lora_Type_LORA_COMMAND+1))
 
-#define command_type_ENUMTYPE command_type
+#define Proto_Event_type_ENUMTYPE Proto_Event_Type
+#define Proto_Event_severity_ENUMTYPE Proto_Severity
+
+#define Proto_Command_type_ENUMTYPE Proto_Command_Type
+
+
+
+
 
 
 
@@ -142,103 +201,127 @@ extern "C" {
 
 
 /* Initializer values for message structs */
-#define event_init_default                       {false, 0, false, _event_type_MIN, false, _severity_MIN, false, 0, false, 0, {{NULL}, NULL}}
-#define command_init_default                     {false, _command_type_MIN, false, 0, false, 0}
-#define car_sensor_init_default                  {false, 0, false, 0}
-#define stint_data_init_default                  {false, 0, false, 0, false, 0, false, 0}
-#define lap_init_default                         {false, 0, false, 0}
-#define lap_data_init_default                    {false, 0, false, 0, false, 0, {{NULL}, NULL}}
-#define mcu_data_init_default                    {false, 0, false, car_sensor_init_default, false, car_sensor_init_default, false, car_sensor_init_default, false, stint_data_init_default, false, lap_data_init_default, {{NULL}, NULL}, {{NULL}, NULL}, false, 0, {{NULL}, NULL}, false, 0}
-#define event_init_zero                          {false, 0, false, _event_type_MIN, false, _severity_MIN, false, 0, false, 0, {{NULL}, NULL}}
-#define command_init_zero                        {false, _command_type_MIN, false, 0, false, 0}
-#define car_sensor_init_zero                     {false, 0, false, 0}
-#define stint_data_init_zero                     {false, 0, false, 0, false, 0, false, 0}
-#define lap_init_zero                            {false, 0, false, 0}
-#define lap_data_init_zero                       {false, 0, false, 0, false, 0, {{NULL}, NULL}}
-#define mcu_data_init_zero                       {false, 0, false, car_sensor_init_zero, false, car_sensor_init_zero, false, car_sensor_init_zero, false, stint_data_init_zero, false, lap_data_init_zero, {{NULL}, NULL}, {{NULL}, NULL}, false, 0, {{NULL}, NULL}, false, 0}
+#define Proto_Event_init_default                 {false, 0, false, _Proto_Event_Type_MIN, false, _Proto_Severity_MIN, false, 0, false, 0, {{NULL}, NULL}}
+#define Proto_Command_init_default               {false, _Proto_Command_Type_MIN, false, 0, false, 0, false, 0}
+#define Proto_Car_Sensor_init_default            {false, 0u, false, 0}
+#define Proto_Stint_Data_init_default            {false, 0, false, 0, false, 0, false, 0}
+#define Proto_Lap_init_default                   {false, 0, false, 0}
+#define Proto_Lap_Data_init_default              {false, 0, false, 0, false, 0, false, 0, {{NULL}, NULL}}
+#define Proto_Mcu_Data_init_default              {false, 0, false, Proto_Car_Sensor_init_default, false, Proto_Car_Sensor_init_default, false, Proto_Car_Sensor_init_default, false, Proto_Stint_Data_init_default, false, Proto_Lap_Data_init_default, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}}
+#define Proto_Update_Data_init_default           {false, Proto_Car_Sensor_init_default, false, Proto_Car_Sensor_init_default, false, Proto_Car_Sensor_init_default, false, Proto_Lap_Data_init_default, false, Proto_Stint_Data_init_default}
+#define Proto_Ack_Data_init_default              {false, 0}
+#define Proto_LoRa_Data_init_default             {false, 0u, false, false, false, 0, false, Proto_Update_Data_init_default, false, Proto_Command_init_default, false, Proto_Ack_Data_init_default}
+#define Proto_Message_init_default               {false, Proto_Mcu_Data_init_default, false, Proto_LoRa_Data_init_default}
+#define Proto_Event_init_zero                    {false, 0, false, _Proto_Event_Type_MIN, false, _Proto_Severity_MIN, false, 0, false, 0, {{NULL}, NULL}}
+#define Proto_Command_init_zero                  {false, _Proto_Command_Type_MIN, false, 0, false, 0, false, 0}
+#define Proto_Car_Sensor_init_zero               {false, 0, false, 0}
+#define Proto_Stint_Data_init_zero               {false, 0, false, 0, false, 0, false, 0}
+#define Proto_Lap_init_zero                      {false, 0, false, 0}
+#define Proto_Lap_Data_init_zero                 {false, 0, false, 0, false, 0, false, 0, {{NULL}, NULL}}
+#define Proto_Mcu_Data_init_zero                 {false, 0, false, Proto_Car_Sensor_init_zero, false, Proto_Car_Sensor_init_zero, false, Proto_Car_Sensor_init_zero, false, Proto_Stint_Data_init_zero, false, Proto_Lap_Data_init_zero, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}}
+#define Proto_Update_Data_init_zero              {false, Proto_Car_Sensor_init_zero, false, Proto_Car_Sensor_init_zero, false, Proto_Car_Sensor_init_zero, false, Proto_Lap_Data_init_zero, false, Proto_Stint_Data_init_zero}
+#define Proto_Ack_Data_init_zero                 {false, 0}
+#define Proto_LoRa_Data_init_zero                {false, 0, false, 0, false, 0, false, Proto_Update_Data_init_zero, false, Proto_Command_init_zero, false, Proto_Ack_Data_init_zero}
+#define Proto_Message_init_zero                  {false, Proto_Mcu_Data_init_zero, false, Proto_LoRa_Data_init_zero}
 
 /* Field tags (for use in manual encoding/decoding) */
-#define event_id_tag                             1
-#define event_type_tag                           2
-#define event_severity_tag                       3
-#define event_created_at_tag                     4
-#define event_displayed_since_tag                5
-#define event_text_tag                           6
-#define command_type_tag                         1
-#define command_created_tag                      2
-#define command_handled_tag                      3
-#define car_sensor_temp_tag                      1
-#define car_sensor_preassure_tag                 2
-#define stint_data_running_tag                   1
-#define stint_data_enabled_tag                   2
-#define stint_data_target_tag                    3
-#define stint_data_elapsed_tag                   4
-#define lap_lap_no_tag                           1
-#define lap_lap_time_ms_tag                      2
-#define lap_data_lap_no_tag                      1
-#define lap_data_best_lap_tag                    2
-#define lap_data_current_lap_tag                 3
-#define lap_data_laps_tag                        4
-#define mcu_data_network_time_adjustment_tag     1
-#define mcu_data_water_tag                       2
-#define mcu_data_oil_tag                         3
-#define mcu_data_gas_tag                         4
-#define mcu_data_stint_tag                       5
-#define mcu_data_lap_data_tag                    6
-#define mcu_data_events_tag                      7
-#define mcu_data_outgoing_commands_tag           8
-#define mcu_data_outgoing_commands_last_idx_tag  9
-#define mcu_data_incoming_commands_tag           10
-#define mcu_data_incoming_commands_last_idx_tag  11
+#define Proto_Event_id_tag                       1
+#define Proto_Event_type_tag                     2
+#define Proto_Event_severity_tag                 3
+#define Proto_Event_created_at_tag               4
+#define Proto_Event_displayed_since_tag          5
+#define Proto_Event_text_tag                     6
+#define Proto_Command_type_tag                   1
+#define Proto_Command_id_tag                     2
+#define Proto_Command_created_tag                3
+#define Proto_Command_handled_tag                4
+#define Proto_Car_Sensor_temp_tag                1
+#define Proto_Car_Sensor_preassure_tag           2
+#define Proto_Stint_Data_running_tag             1
+#define Proto_Stint_Data_enabled_tag             2
+#define Proto_Stint_Data_target_tag              3
+#define Proto_Stint_Data_elapsed_tag             4
+#define Proto_Lap_lap_no_tag                     1
+#define Proto_Lap_lap_time_ms_tag                2
+#define Proto_Lap_Data_lap_no_tag                1
+#define Proto_Lap_Data_best_lap_ms_tag           2
+#define Proto_Lap_Data_current_lap_ms_tag        3
+#define Proto_Lap_Data_current_lap_snapshot_time_tag 4
+#define Proto_Lap_Data_laps_tag                  5
+#define Proto_Mcu_Data_network_time_adjustment_tag 1
+#define Proto_Mcu_Data_water_tag                 2
+#define Proto_Mcu_Data_oil_tag                   3
+#define Proto_Mcu_Data_gas_tag                   4
+#define Proto_Mcu_Data_stint_tag                 5
+#define Proto_Mcu_Data_lap_data_tag              6
+#define Proto_Mcu_Data_events_tag                7
+#define Proto_Mcu_Data_outgoing_commands_tag     8
+#define Proto_Mcu_Data_incoming_commands_tag     9
+#define Proto_Update_Data_water_sensor_tag       1
+#define Proto_Update_Data_oil_sensor_tag         2
+#define Proto_Update_Data_gas_sensor_tag         3
+#define Proto_Update_Data_lap_data_tag           4
+#define Proto_Update_Data_stint_data_tag         5
+#define Proto_Ack_Data_seq_nr_tag                1
+#define Proto_LoRa_Data_seq_nr_tag               1
+#define Proto_LoRa_Data_requires_ack_tag         2
+#define Proto_LoRa_Data_timestamp_tag            3
+#define Proto_LoRa_Data_update_data_tag          4
+#define Proto_LoRa_Data_command_data_tag         5
+#define Proto_LoRa_Data_ack_data_tag             6
+#define Proto_Message_mcu_data_tag               1
+#define Proto_Message_lora_data_tag              2
 
 /* Struct field encoding specification for nanopb */
-#define event_FIELDLIST(X, a) \
+#define Proto_Event_FIELDLIST(X, a) \
 X(a, STATIC,   OPTIONAL, INT32,    id,                1) \
 X(a, STATIC,   OPTIONAL, UENUM,    type,              2) \
 X(a, STATIC,   OPTIONAL, UENUM,    severity,          3) \
 X(a, STATIC,   OPTIONAL, INT64,    created_at,        4) \
 X(a, STATIC,   OPTIONAL, INT64,    displayed_since,   5) \
 X(a, CALLBACK, OPTIONAL, STRING,   text,              6)
-#define event_CALLBACK pb_default_field_callback
-#define event_DEFAULT (const pb_byte_t*)"\x10\x01\x18\x01\x00"
+#define Proto_Event_CALLBACK pb_default_field_callback
+#define Proto_Event_DEFAULT (const pb_byte_t*)"\x10\x01\x18\x01\x00"
 
-#define command_FIELDLIST(X, a) \
+#define Proto_Command_FIELDLIST(X, a) \
 X(a, STATIC,   OPTIONAL, UENUM,    type,              1) \
-X(a, STATIC,   OPTIONAL, INT64,    created,           2) \
-X(a, STATIC,   OPTIONAL, INT64,    handled,           3)
-#define command_CALLBACK NULL
-#define command_DEFAULT (const pb_byte_t*)"\x08\x01\x00"
+X(a, STATIC,   OPTIONAL, INT32,    id,                2) \
+X(a, STATIC,   OPTIONAL, INT64,    created,           3) \
+X(a, STATIC,   OPTIONAL, INT64,    handled,           4)
+#define Proto_Command_CALLBACK NULL
+#define Proto_Command_DEFAULT (const pb_byte_t*)"\x08\x01\x00"
 
-#define car_sensor_FIELDLIST(X, a) \
+#define Proto_Car_Sensor_FIELDLIST(X, a) \
 X(a, STATIC,   OPTIONAL, UINT32,   temp,              1) \
 X(a, STATIC,   OPTIONAL, DOUBLE,   preassure,         2)
-#define car_sensor_CALLBACK NULL
-#define car_sensor_DEFAULT NULL
+#define Proto_Car_Sensor_CALLBACK NULL
+#define Proto_Car_Sensor_DEFAULT (const pb_byte_t*)"\x08\x00\x11\x00\x00\x00\x00\x00\x00\x00\x00\x00"
 
-#define stint_data_FIELDLIST(X, a) \
+#define Proto_Stint_Data_FIELDLIST(X, a) \
 X(a, STATIC,   OPTIONAL, BOOL,     running,           1) \
 X(a, STATIC,   OPTIONAL, BOOL,     enabled,           2) \
 X(a, STATIC,   OPTIONAL, INT64,    target,            3) \
 X(a, STATIC,   OPTIONAL, INT64,    elapsed,           4)
-#define stint_data_CALLBACK NULL
-#define stint_data_DEFAULT NULL
+#define Proto_Stint_Data_CALLBACK NULL
+#define Proto_Stint_Data_DEFAULT NULL
 
-#define lap_FIELDLIST(X, a) \
+#define Proto_Lap_FIELDLIST(X, a) \
 X(a, STATIC,   OPTIONAL, INT32,    lap_no,            1) \
 X(a, STATIC,   OPTIONAL, INT64,    lap_time_ms,       2)
-#define lap_CALLBACK NULL
-#define lap_DEFAULT NULL
+#define Proto_Lap_CALLBACK NULL
+#define Proto_Lap_DEFAULT NULL
 
-#define lap_data_FIELDLIST(X, a) \
+#define Proto_Lap_Data_FIELDLIST(X, a) \
 X(a, STATIC,   OPTIONAL, INT32,    lap_no,            1) \
-X(a, STATIC,   OPTIONAL, UINT32,   best_lap,          2) \
-X(a, STATIC,   OPTIONAL, UINT32,   current_lap,       3) \
-X(a, CALLBACK, REPEATED, MESSAGE,  laps,              4)
-#define lap_data_CALLBACK pb_default_field_callback
-#define lap_data_DEFAULT NULL
-#define lap_data_laps_MSGTYPE lap
+X(a, STATIC,   OPTIONAL, UINT32,   best_lap_ms,       2) \
+X(a, STATIC,   OPTIONAL, UINT32,   current_lap_ms,    3) \
+X(a, STATIC,   OPTIONAL, UINT32,   current_lap_snapshot_time,   4) \
+X(a, CALLBACK, REPEATED, MESSAGE,  laps,              5)
+#define Proto_Lap_Data_CALLBACK pb_default_field_callback
+#define Proto_Lap_Data_DEFAULT NULL
+#define Proto_Lap_Data_laps_MSGTYPE Proto_Lap
 
-#define mcu_data_FIELDLIST(X, a) \
+#define Proto_Mcu_Data_FIELDLIST(X, a) \
 X(a, STATIC,   OPTIONAL, INT64,    network_time_adjustment,   1) \
 X(a, STATIC,   OPTIONAL, MESSAGE,  water,             2) \
 X(a, STATIC,   OPTIONAL, MESSAGE,  oil,               3) \
@@ -247,46 +330,96 @@ X(a, STATIC,   OPTIONAL, MESSAGE,  stint,             5) \
 X(a, STATIC,   OPTIONAL, MESSAGE,  lap_data,          6) \
 X(a, CALLBACK, REPEATED, MESSAGE,  events,            7) \
 X(a, CALLBACK, REPEATED, MESSAGE,  outgoing_commands,   8) \
-X(a, STATIC,   OPTIONAL, INT64,    outgoing_commands_last_idx,   9) \
-X(a, CALLBACK, REPEATED, MESSAGE,  incoming_commands,  10) \
-X(a, STATIC,   OPTIONAL, INT64,    incoming_commands_last_idx,  11)
-#define mcu_data_CALLBACK pb_default_field_callback
-#define mcu_data_DEFAULT NULL
-#define mcu_data_water_MSGTYPE car_sensor
-#define mcu_data_oil_MSGTYPE car_sensor
-#define mcu_data_gas_MSGTYPE car_sensor
-#define mcu_data_stint_MSGTYPE stint_data
-#define mcu_data_lap_data_MSGTYPE lap_data
-#define mcu_data_events_MSGTYPE event
-#define mcu_data_outgoing_commands_MSGTYPE command
-#define mcu_data_incoming_commands_MSGTYPE command
+X(a, CALLBACK, REPEATED, MESSAGE,  incoming_commands,   9)
+#define Proto_Mcu_Data_CALLBACK pb_default_field_callback
+#define Proto_Mcu_Data_DEFAULT NULL
+#define Proto_Mcu_Data_water_MSGTYPE Proto_Car_Sensor
+#define Proto_Mcu_Data_oil_MSGTYPE Proto_Car_Sensor
+#define Proto_Mcu_Data_gas_MSGTYPE Proto_Car_Sensor
+#define Proto_Mcu_Data_stint_MSGTYPE Proto_Stint_Data
+#define Proto_Mcu_Data_lap_data_MSGTYPE Proto_Lap_Data
+#define Proto_Mcu_Data_events_MSGTYPE Proto_Event
+#define Proto_Mcu_Data_outgoing_commands_MSGTYPE Proto_Command
+#define Proto_Mcu_Data_incoming_commands_MSGTYPE Proto_Command
 
-extern const pb_msgdesc_t event_msg;
-extern const pb_msgdesc_t command_msg;
-extern const pb_msgdesc_t car_sensor_msg;
-extern const pb_msgdesc_t stint_data_msg;
-extern const pb_msgdesc_t lap_msg;
-extern const pb_msgdesc_t lap_data_msg;
-extern const pb_msgdesc_t mcu_data_msg;
+#define Proto_Update_Data_FIELDLIST(X, a) \
+X(a, STATIC,   OPTIONAL, MESSAGE,  water_sensor,      1) \
+X(a, STATIC,   OPTIONAL, MESSAGE,  oil_sensor,        2) \
+X(a, STATIC,   OPTIONAL, MESSAGE,  gas_sensor,        3) \
+X(a, STATIC,   OPTIONAL, MESSAGE,  lap_data,          4) \
+X(a, STATIC,   OPTIONAL, MESSAGE,  stint_data,        5)
+#define Proto_Update_Data_CALLBACK NULL
+#define Proto_Update_Data_DEFAULT NULL
+#define Proto_Update_Data_water_sensor_MSGTYPE Proto_Car_Sensor
+#define Proto_Update_Data_oil_sensor_MSGTYPE Proto_Car_Sensor
+#define Proto_Update_Data_gas_sensor_MSGTYPE Proto_Car_Sensor
+#define Proto_Update_Data_lap_data_MSGTYPE Proto_Lap_Data
+#define Proto_Update_Data_stint_data_MSGTYPE Proto_Stint_Data
+
+#define Proto_Ack_Data_FIELDLIST(X, a) \
+X(a, STATIC,   OPTIONAL, UINT32,   seq_nr,            1)
+#define Proto_Ack_Data_CALLBACK NULL
+#define Proto_Ack_Data_DEFAULT NULL
+
+#define Proto_LoRa_Data_FIELDLIST(X, a) \
+X(a, STATIC,   OPTIONAL, UINT32,   seq_nr,            1) \
+X(a, STATIC,   OPTIONAL, BOOL,     requires_ack,      2) \
+X(a, STATIC,   OPTIONAL, UINT32,   timestamp,         3) \
+X(a, STATIC,   OPTIONAL, MESSAGE,  update_data,       4) \
+X(a, STATIC,   OPTIONAL, MESSAGE,  command_data,      5) \
+X(a, STATIC,   OPTIONAL, MESSAGE,  ack_data,          6)
+#define Proto_LoRa_Data_CALLBACK NULL
+#define Proto_LoRa_Data_DEFAULT (const pb_byte_t*)"\x08\x00\x10\x00\x00"
+#define Proto_LoRa_Data_update_data_MSGTYPE Proto_Update_Data
+#define Proto_LoRa_Data_command_data_MSGTYPE Proto_Command
+#define Proto_LoRa_Data_ack_data_MSGTYPE Proto_Ack_Data
+
+#define Proto_Message_FIELDLIST(X, a) \
+X(a, STATIC,   OPTIONAL, MESSAGE,  mcu_data,          1) \
+X(a, STATIC,   OPTIONAL, MESSAGE,  lora_data,         2)
+#define Proto_Message_CALLBACK NULL
+#define Proto_Message_DEFAULT NULL
+#define Proto_Message_mcu_data_MSGTYPE Proto_Mcu_Data
+#define Proto_Message_lora_data_MSGTYPE Proto_LoRa_Data
+
+extern const pb_msgdesc_t Proto_Event_msg;
+extern const pb_msgdesc_t Proto_Command_msg;
+extern const pb_msgdesc_t Proto_Car_Sensor_msg;
+extern const pb_msgdesc_t Proto_Stint_Data_msg;
+extern const pb_msgdesc_t Proto_Lap_msg;
+extern const pb_msgdesc_t Proto_Lap_Data_msg;
+extern const pb_msgdesc_t Proto_Mcu_Data_msg;
+extern const pb_msgdesc_t Proto_Update_Data_msg;
+extern const pb_msgdesc_t Proto_Ack_Data_msg;
+extern const pb_msgdesc_t Proto_LoRa_Data_msg;
+extern const pb_msgdesc_t Proto_Message_msg;
 
 /* Defines for backwards compatibility with code written before nanopb-0.4.0 */
-#define event_fields &event_msg
-#define command_fields &command_msg
-#define car_sensor_fields &car_sensor_msg
-#define stint_data_fields &stint_data_msg
-#define lap_fields &lap_msg
-#define lap_data_fields &lap_data_msg
-#define mcu_data_fields &mcu_data_msg
+#define Proto_Event_fields &Proto_Event_msg
+#define Proto_Command_fields &Proto_Command_msg
+#define Proto_Car_Sensor_fields &Proto_Car_Sensor_msg
+#define Proto_Stint_Data_fields &Proto_Stint_Data_msg
+#define Proto_Lap_fields &Proto_Lap_msg
+#define Proto_Lap_Data_fields &Proto_Lap_Data_msg
+#define Proto_Mcu_Data_fields &Proto_Mcu_Data_msg
+#define Proto_Update_Data_fields &Proto_Update_Data_msg
+#define Proto_Ack_Data_fields &Proto_Ack_Data_msg
+#define Proto_LoRa_Data_fields &Proto_LoRa_Data_msg
+#define Proto_Message_fields &Proto_Message_msg
 
 /* Maximum encoded size of messages (where known) */
-/* event_size depends on runtime parameters */
-/* lap_data_size depends on runtime parameters */
-/* mcu_data_size depends on runtime parameters */
-#define MESSAGE_PB_H_MAX_SIZE                    stint_data_size
-#define car_sensor_size                          15
-#define command_size                             24
-#define lap_size                                 22
-#define stint_data_size                          26
+/* Proto_Event_size depends on runtime parameters */
+/* Proto_Lap_Data_size depends on runtime parameters */
+/* Proto_Mcu_Data_size depends on runtime parameters */
+/* Proto_Update_Data_size depends on runtime parameters */
+/* Proto_LoRa_Data_size depends on runtime parameters */
+/* Proto_Message_size depends on runtime parameters */
+#define MESSAGE_PB_H_MAX_SIZE                    Proto_Command_size
+#define Proto_Ack_Data_size                      6
+#define Proto_Car_Sensor_size                    15
+#define Proto_Command_size                       35
+#define Proto_Lap_size                           22
+#define Proto_Stint_Data_size                    26
 
 #ifdef __cplusplus
 } /* extern "C" */

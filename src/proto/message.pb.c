@@ -6,25 +6,38 @@
 #error Regenerate this file with the current version of nanopb generator.
 #endif
 
-PB_BIND(event, event, AUTO)
+PB_BIND(Proto_Event, Proto_Event, AUTO)
 
 
-PB_BIND(command, command, AUTO)
+PB_BIND(Proto_Command, Proto_Command, AUTO)
 
 
-PB_BIND(car_sensor, car_sensor, AUTO)
+PB_BIND(Proto_Car_Sensor, Proto_Car_Sensor, AUTO)
 
 
-PB_BIND(stint_data, stint_data, AUTO)
+PB_BIND(Proto_Stint_Data, Proto_Stint_Data, AUTO)
 
 
-PB_BIND(lap, lap, AUTO)
+PB_BIND(Proto_Lap, Proto_Lap, AUTO)
 
 
-PB_BIND(lap_data, lap_data, AUTO)
+PB_BIND(Proto_Lap_Data, Proto_Lap_Data, AUTO)
 
 
-PB_BIND(mcu_data, mcu_data, 2)
+PB_BIND(Proto_Mcu_Data, Proto_Mcu_Data, 2)
+
+
+PB_BIND(Proto_Update_Data, Proto_Update_Data, AUTO)
+
+
+PB_BIND(Proto_Ack_Data, Proto_Ack_Data, AUTO)
+
+
+PB_BIND(Proto_LoRa_Data, Proto_LoRa_Data, 2)
+
+
+PB_BIND(Proto_Message, Proto_Message, 2)
+
 
 
 

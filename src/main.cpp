@@ -1,7 +1,6 @@
 #define HELTEC_POWER_BUTTON // must be before "#include <heltec_unofficial.h>"
 #include "heltec_unofficial.h"
 #include "esp32-hal.h"
-#include "messages.h"
 #include <stdint.h>
 #include <WiFi.h>
 #include <string.h>
@@ -19,6 +18,10 @@
 #include "lwip/sockets.h"
 #include "lwip/sys.h"
 #include <lwip/netdb.h>
+#include "proto/message.pb.h"
+#include "pb.h"
+#include "pb_decode.h"
+#include "pb_encode.h"
 
 #if (PRIMARY)
     #define CONFIG_SSID "funkbox-car-prim"
@@ -57,7 +60,7 @@
 // EU ISM band is 25 mW, and that transmissting without an antenna can damage your hardware.
 #define TRANSMIT_POWER 0
 
-payloaded_message *tx_queue[MAX_ITEMS];
+Proto_LoRa_Data* tx_queue[MAX_ITEMS];
 uint64_t message_counter = 0;
 unsigned long tx_time = 0;
 unsigned long last_rx = 0;
@@ -69,21 +72,18 @@ String rxString;
 
 char empty[2] = "";
 
-struct mcu_data persistent_state;
-struct mcu_data incoming_state; 
+Proto_Mcu_Data persistent_state;
+Proto_Mcu_Data incoming_state; 
 
-void socketserver_send(payloaded_message message);
-void handle_status(char* message);
+void socketserver_send(Proto_LoRa_Data message);
+void handle_proto(uint8_t* message, size_t length);
 void handle_command(char* message);
+Proto_Update_Data create_status_update();
 //
 //
 // COMM  COMM  COMM  COMM  COMM  COMM  COMM  COMM  COMM  COMM  COMM  COMM  COMM  COMM  COMM  COMM  COMM  COMM  COMM  COMM  COMM  COMM  COMM
 //
 //
-
-void freePayloadedMessage(payloaded_message* payloaded_message) {
-  free(payloaded_message);
-}
 
 void printBuffer(char* buffer, size_t start, size_t count) {
     for (int i = start; i < start + count; i++) {
@@ -91,8 +91,8 @@ void printBuffer(char* buffer, size_t start, size_t count) {
     }
 }
 
-bool do_not_ack_msg(payloaded_message* msg) {
-  return !msg->requires_ack;
+bool do_not_ack_msg(Proto_LoRa_Data* msg) {
+  return msg->requires_ack;
 }
 
 void rx()
@@ -107,8 +107,7 @@ void comm_setup()
     tx_queue[i] = NULL;
   }
 
-  both.printf("Size: %d, %d, %d, %d", sizeof(car_sensor), sizeof(lap_data), sizeof(stint_data), sizeof(ack_msg));
-
+ 
   both.println("Radio init");
   RADIOLIB_OR_HALT(radio.begin());
   // Set the callback function for received packets
@@ -126,29 +125,11 @@ void comm_setup()
   RADIOLIB_OR_HALT(radio.startReceive(RADIOLIB_SX126X_RX_TIMEOUT_INF));
 }
 
-void clear_outdated() {
-  int cnt = 0;
-  for (int i = 0 ; i < MAX_ITEMS; i++) {
-    if(tx_queue[i] == NULL || !tx_queue[i]->remove_older_versions) {
-      continue;
-    }
-    for (int j = i; j < MAX_ITEMS; j++) {
-      if (tx_queue[j] == NULL) {
-        continue;
-      }
-      if( tx_queue[i]->type == tx_queue[j]->type && 
-          tx_queue[i]->timestamp < tx_queue[j]->timestamp) {
-        freePayloadedMessage(tx_queue[i]);
-        tx_queue[i] = NULL;
-        cnt++;
-        break;
-      }
-    }
-  }
-  //Serial.printf("Removed %d old messages\n", cnt);
+void free_message(Proto_LoRa_Data* data) {
+  free(data);
 }
 
-void comm_enqueue_message(struct payloaded_message *message)
+void comm_enqueue_message(Proto_LoRa_Data *message)
 {
   message->seq_nr = message_counter;
   int enq_pos = message_counter % MAX_ITEMS;
@@ -160,31 +141,21 @@ void comm_enqueue_message(struct payloaded_message *message)
     message_counter = 0;
 }
 
-int getMessageLen(payloaded_message* message) {
-  return sizeof(payloaded_message);
-}
+void transmit_message(Proto_LoRa_Data* message) {
+  uint8_t buffer[128];
+  size_t message_length;
+  bool status;
 
-void transmit_message(payloaded_message *messages[], byte size) {
-  int len = 0;
-  for (int i = 0; i < size; i++) {
-    len += getMessageLen(messages[i]);
-  }
-  size_t length_with_headers = len + 1 + 2;
-  uint8_t combined_output[length_with_headers];
-  combined_output[0] = 'L';
-  combined_output[1] = 'T';
-  combined_output[2] = size;
-  for (int i = 0; i < size; i++) {
-    Serial.printf("Message %d Type %d\n", i, messages[i]->type);
-    memcpy(combined_output + 3 + (i*sizeof(struct payloaded_message)), messages[i], sizeof(struct payloaded_message));
-  }
+  pb_ostream_t stream = pb_ostream_from_buffer(buffer, sizeof(buffer));
+  status = pb_encode(&stream, Proto_LoRa_Data_fields, message);
 
   radio.clearDio1Action();
   heltec_led(50);
 
-  both.printf("[LR OUT] sending %d byte\n", (int)length_with_headers);
+
+  both.printf("[LR OUT] sending %d byte\n", stream.bytes_written);
   tx_time = millis();
-  RADIOLIB(radio.transmit(combined_output, length_with_headers));
+  RADIOLIB(radio.transmit(buffer, stream.bytes_written));
   tx_time = millis() - tx_time;
   heltec_led(0);
   if (_radiolib_status == RADIOLIB_ERR_NONE) {
@@ -200,23 +171,23 @@ void transmit_message(payloaded_message *messages[], byte size) {
 void send_ack(uint8_t seqNr)
 {
   Serial.printf("Sending ack for %d\n", seqNr);
-  payloaded_message *container = (payloaded_message *)malloc(sizeof(payloaded_message));
-  ack_msg ack_msg = { .seq_nr = seqNr };
-  container->type = LORA_ACK;
-  container->requires_ack = false;
-  memcpy(container->payload, &ack_msg, sizeof(ack_msg));
-
-  comm_enqueue_message(container);
+  Proto_LoRa_Data* data = (Proto_LoRa_Data*) malloc(sizeof(Proto_LoRa_Data));
+  *data = Proto_LoRa_Data_init_zero;
+  data->ack_data.seq_nr = seqNr;
+  data->ack_data.has_seq_nr = true;
+  data->requires_ack = false;
+  data->has_requires_ack = true;
+  comm_enqueue_message(data);
 }
 
 // handle a received message. right now this is just removing messages from the queue if they were ACKed
-void handle_received_message(payloaded_message incoming_data) {
-  if(incoming_data.type == LORA_ACK) {
-    int acked_seq_nr = incoming_data.ack_msg->seq_nr;
+void handle_received_message(Proto_LoRa_Data incoming_data) {
+  if(incoming_data.has_ack_data) {
+    int acked_seq_nr = incoming_data.ack_data.seq_nr;
     Serial.printf("Got ACK Message for message %d\n", acked_seq_nr);
     for (int i = 0; i < MAX_ITEMS; i++) {      
       if (tx_queue[i] != NULL && acked_seq_nr == tx_queue[i]->seq_nr) {
-        freePayloadedMessage(tx_queue[i]);
+        free_message(tx_queue[i]);
         tx_queue[i] = NULL;
         break;
       }
@@ -225,82 +196,65 @@ void handle_received_message(payloaded_message incoming_data) {
   }
 
   if(WiFi.status() != WL_CONNECTED) {
-    both.printf("Not forwarding message %s as WLAN is not avail", incoming_data.type);
+    both.printf("Not forwarding message as WLAN is not avail");
     return; 
   }
   socketserver_send(incoming_data);
 }
 
-
-void initialize_incoming_message(payloaded_message* incoming_message) {
-  incoming_message->car_sensor_data = (car_sensor*) &(incoming_message->payload);
-  incoming_message->lap_data = (lap_data*) &(incoming_message->payload);
-  incoming_message->stint_data = (stint_data*) &(incoming_message->payload);
-  incoming_message->ack_msg = (ack_msg*) &(incoming_message->payload);
-}
-
-
 // splits the string into various sub - messages and processes them
 // 
-void process_received_message(const char *message, size_t length)
+void process_received_message(const uint8_t *data, size_t length)
 {
-  if(message == NULL || strlen(message) == 0) {
+  u_int8_t buffer[length];
+  bool status;
+  if(data == NULL || length == 0) {
     return ;
   }
 
-  if(message[0] != 'L' && message[1] != 'T') {
-    both.println("[LR IN] IGN");
-    return; 
-  }
+  Serial.printf("Recieved message\n");
 
-  uint8_t cnt = message[2];
-  int calculated_length = 3 + cnt * sizeof(struct payloaded_message);
-
-  Serial.printf("Recieved [%d] messages\n", cnt);
-
-  if(calculated_length != length) {
-    both.printf("[LR IN] size off, \nexp [%d] got [%d]\n", calculated_length, length);
-    return;
-  }
-
-  for (int i = 0; i < cnt; i++) {
-    payloaded_message incoming_data;
-    memcpy(&incoming_data, message + 3 + i * sizeof(payloaded_message), sizeof(payloaded_message));
-    initialize_incoming_message(&incoming_data);
-    handle_received_message(incoming_data);
+  Proto_LoRa_Data incoming_message = Proto_LoRa_Data_init_zero;
+  pb_istream_t stream = pb_istream_from_buffer(buffer, length);
+  status = pb_decode(&stream, Proto_LoRa_Data_fields, &incoming_message);
+  if (status) {
+    handle_received_message(incoming_message);
   }
 }
 
-
+void send_update(Proto_Update_Data update_data) {
+  Proto_LoRa_Data lora_data = Proto_LoRa_Data_init_zero;
+  lora_data.has_update_data = true;
+  lora_data.update_data = update_data;
+  lora_data.requires_ack = false;
+  lora_data.has_requires_ack = true;
+  transmit_message(&lora_data);
+}
 
 // main communicator loop. processes the queue by sending out messages and reacts
 // if the received flag was raised by interrupt.
 void comm_loop()
 {
   if(millis() > (last_tx + INTERVAL)) {
-    clear_outdated();
-    payloaded_message* outgoing_messages[MAX_ITEMS];
-    int index = 0;
+    bool message_sent = false;
+    Proto_Update_Data status_update = create_status_update();
     for (int i = 0; i < MAX_ITEMS; i++) {
       if (tx_queue[i] != NULL) {
-        outgoing_messages[index] = tx_queue[i];
-        index++;
+        tx_queue[i]->has_update_data = true;
+        tx_queue[i]->update_data = status_update;
+        transmit_message(tx_queue[i]);
+        message_sent = true;
         if (do_not_ack_msg(tx_queue[i])) {
+          free_message(tx_queue[i]);
           tx_queue[i] = NULL;
         }
       }
     }
+    if(!message_sent) {
+      both.printf("Sending out of turn");
+      send_update(status_update);
+    }
 
-    if(index > 0) {
-      Serial.printf("[LR OUT] Sending %d messages\n", index);
-      transmit_message(outgoing_messages, index);
-    }
- 
-    for (int i = 0; i < index; i++) {
-      if (do_not_ack_msg(outgoing_messages[i])) {
-        freePayloadedMessage(outgoing_messages[i]);
-      }
-    }
     last_tx = millis();
   }
 
@@ -316,7 +270,7 @@ void comm_loop()
       return;
     }
 
-    char* incoming_message = (char*)malloc(sizeof(char) * packet_length + 1);
+    uint8_t* incoming_message = (uint8_t*)(packet_length);
 
     radio.readData((uint8_t *)incoming_message , packet_length);
 
@@ -510,7 +464,7 @@ static void listen(void *pvParameters)
         if (FD_ISSET(sock, &rfds))
         {
           // Incoming datagram received
-          char recvbuf[1500];
+          uint8_t recvbuf[1500];
           char raddr_name[32] = {0};
           struct sockaddr_storage raddr; // Large enough for both IPv4 or IPv6
           socklen_t socklen = sizeof(raddr);
@@ -528,11 +482,9 @@ static void listen(void *pvParameters)
             inet_ntoa_r(((struct sockaddr_in *)&raddr)->sin_addr,
                         raddr_name, sizeof(raddr_name) - 1);
           }
-          both.printf("[WIN] Rcv %db from %s: \n", len, raddr_name);
+          both.printf("[WIN] Rcv %dB from %s: \n", len, raddr_name);
           #if PRIMARY
-            if (recvbuf[0] == 'S' && recvbuf[1] == 'T') {
-              handle_status(recvbuf + 2);
-            }
+            handle_proto(recvbuf, len);
           #endif
         }
       }
@@ -544,35 +496,53 @@ static void listen(void *pvParameters)
   close(sock);
 }
 
-void handle_status(char* message) {
-  memcpy(&incoming_state, message, sizeof(mcu_data));
-  Serial.printf("Received new Status Object\n");
-  if (memcmp(&(incoming_state.gas), &(persistent_state.gas), sizeof(car_sensor)) != 0) {     
-    Serial.printf("GAS changed\n");
-  } 
-  
-  if (memcmp(&(incoming_state.oil), &(persistent_state.oil), sizeof(car_sensor)) != 0) { 
-    Serial.printf("OIL changed\n");
-    payloaded_message* message = (payloaded_message*) malloc(sizeof(payloaded_message));
-    message->type = LORA_OIL;
-    message->requires_ack = false;
-    memcpy(message->payload, &incoming_state.oil, sizeof(car_sensor));
-    comm_enqueue_message(message);
+void handle_proto(uint8_t* message, size_t length) {
+  Proto_Message decoded_message = Proto_Message_init_zero;
+  pb_istream_t stream = pb_istream_from_buffer(message, length);
+  bool status = pb_decode(&stream, Proto_Message_fields, &decoded_message);
+  if(!status) {
+    both.printf("Could not decode message");
+    return;
   }
-  memcpy(&persistent_state, message, sizeof(struct mcu_data));
+
+  persistent_state = decoded_message.mcu_data;
+}
+
+Proto_Update_Data create_status_update() {
+  Proto_Update_Data data = Proto_Update_Data_init_zero;
+  data.has_gas_sensor = persistent_state.has_gas;
+  data.has_oil_sensor = persistent_state.has_oil;
+  data.has_water_sensor = persistent_state.has_water;
+  data.has_stint_data = persistent_state.has_stint;
+  data.has_lap_data = persistent_state.has_lap_data;
+
+  data.gas_sensor = persistent_state.gas;
+  data.water_sensor = persistent_state.water;
+  data.oil_sensor = persistent_state.oil;
+  data.stint_data = persistent_state.stint;
+  data.lap_data = persistent_state.lap_data;
+  return data;
 }
 
 
-void socketserver_send(payloaded_message incoming_data) {
+void socketserver_send(Proto_LoRa_Data data) {
   static int send_count;
-  
+  Proto_Message proto_message = Proto_Message_init_zero;
+  proto_message.has_lora_data = true;
+  proto_message.lora_data = data;
+  uint8_t buffer[255];
   char addrbuf[32] = {0};
-  int len = sizeof(payloaded_message);
-  char msg[sizeof(payloaded_message) + 2];
-  msg[0] = 'L';
-  msg[1] = 'R';
-  memcpy(msg + 2, &incoming_data, sizeof(payloaded_message));
-  struct addrinfo hints = {
+
+  pb_ostream_t stream = pb_ostream_from_buffer(buffer, sizeof(buffer));
+  bool status = pb_encode(&stream, Proto_Message_fields, &proto_message);
+
+  if(!status) {
+    Serial.println("Could not encode Proto");
+  } else {
+    Serial.printf("Sending %d bytes over wifi\n", stream.bytes_written);
+  }
+
+   struct addrinfo hints = {
       .ai_flags = AI_PASSIVE,
       .ai_socktype = SOCK_DGRAM,
   };
@@ -598,7 +568,7 @@ void socketserver_send(payloaded_message incoming_data) {
   ((struct sockaddr_in *)res->ai_addr)->sin_port = htons(UDP_PORT);
   inet_ntoa_r(((struct sockaddr_in *)res->ai_addr)->sin_addr, addrbuf, sizeof(addrbuf) - 1);
   both.printf("[WOUT] Sending to IPV4 multicast address %s:%d...\n", addrbuf, UDP_PORT);
-  err = sendto(sock, msg, len, 0, res->ai_addr, res->ai_addrlen);
+  err = sendto(sock, buffer, stream.bytes_written, 0, res->ai_addr, res->ai_addrlen);
   freeaddrinfo(res);
   if (err < 0)
   {

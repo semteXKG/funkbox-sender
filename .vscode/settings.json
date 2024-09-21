@@ -11,7 +11,9 @@
         "ssd1306wire.h": "c",
         "funkbox_haltec.h": "c",
         "algorithm": "cpp",
-        "system_error": "cpp"
+        "system_error": "cpp",
+        "pb_encode.h": "c",
+        "pb.h": "c"
     },
     "idf.portWin": "COM7"
 }

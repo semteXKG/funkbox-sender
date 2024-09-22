@@ -81,9 +81,11 @@ typedef struct _Proto_Stint_Data {
     bool has_enabled;
     bool enabled;
     bool has_target;
-    int64_t target;
+    uint32_t target;
     bool has_elapsed;
-    int64_t elapsed;
+    uint32_t elapsed;
+    bool has_elapsed_timestamp;
+    uint32_t elapsed_timestamp;
 } Proto_Stint_Data;
 
 typedef struct _Proto_Lap {
@@ -107,7 +109,9 @@ typedef struct _Proto_Lap_Data {
 
 typedef struct _Proto_Mcu_Data {
     bool has_network_time_adjustment;
-    int64_t network_time_adjustment;
+    uint32_t network_time_adjustment;
+    bool has_send_timestamp;
+    uint32_t send_timestamp;
     bool has_water;
     Proto_Car_Sensor water;
     bool has_oil;
@@ -204,10 +208,10 @@ extern "C" {
 #define Proto_Event_init_default                 {false, 0, false, _Proto_Event_Type_MIN, false, _Proto_Severity_MIN, false, 0, false, 0, {{NULL}, NULL}}
 #define Proto_Command_init_default               {false, _Proto_Command_Type_MIN, false, 0, false, 0, false, 0}
 #define Proto_Car_Sensor_init_default            {false, 0u, false, 0}
-#define Proto_Stint_Data_init_default            {false, 0, false, 0, false, 0, false, 0}
+#define Proto_Stint_Data_init_default            {false, 0, false, 0, false, 0, false, 0, false, 0}
 #define Proto_Lap_init_default                   {false, 0, false, 0}
 #define Proto_Lap_Data_init_default              {false, 0, false, 0, false, 0, false, 0, {{NULL}, NULL}}
-#define Proto_Mcu_Data_init_default              {false, 0, false, Proto_Car_Sensor_init_default, false, Proto_Car_Sensor_init_default, false, Proto_Car_Sensor_init_default, false, Proto_Stint_Data_init_default, false, Proto_Lap_Data_init_default, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}}
+#define Proto_Mcu_Data_init_default              {false, 0, false, 0, false, Proto_Car_Sensor_init_default, false, Proto_Car_Sensor_init_default, false, Proto_Car_Sensor_init_default, false, Proto_Stint_Data_init_default, false, Proto_Lap_Data_init_default, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}}
 #define Proto_Update_Data_init_default           {false, Proto_Car_Sensor_init_default, false, Proto_Car_Sensor_init_default, false, Proto_Car_Sensor_init_default, false, Proto_Lap_Data_init_default, false, Proto_Stint_Data_init_default}
 #define Proto_Ack_Data_init_default              {false, 0}
 #define Proto_LoRa_Data_init_default             {false, 0u, false, false, false, 0, false, Proto_Update_Data_init_default, false, Proto_Command_init_default, false, Proto_Ack_Data_init_default}
@@ -215,10 +219,10 @@ extern "C" {
 #define Proto_Event_init_zero                    {false, 0, false, _Proto_Event_Type_MIN, false, _Proto_Severity_MIN, false, 0, false, 0, {{NULL}, NULL}}
 #define Proto_Command_init_zero                  {false, _Proto_Command_Type_MIN, false, 0, false, 0, false, 0}
 #define Proto_Car_Sensor_init_zero               {false, 0, false, 0}
-#define Proto_Stint_Data_init_zero               {false, 0, false, 0, false, 0, false, 0}
+#define Proto_Stint_Data_init_zero               {false, 0, false, 0, false, 0, false, 0, false, 0}
 #define Proto_Lap_init_zero                      {false, 0, false, 0}
 #define Proto_Lap_Data_init_zero                 {false, 0, false, 0, false, 0, false, 0, {{NULL}, NULL}}
-#define Proto_Mcu_Data_init_zero                 {false, 0, false, Proto_Car_Sensor_init_zero, false, Proto_Car_Sensor_init_zero, false, Proto_Car_Sensor_init_zero, false, Proto_Stint_Data_init_zero, false, Proto_Lap_Data_init_zero, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}}
+#define Proto_Mcu_Data_init_zero                 {false, 0, false, 0, false, Proto_Car_Sensor_init_zero, false, Proto_Car_Sensor_init_zero, false, Proto_Car_Sensor_init_zero, false, Proto_Stint_Data_init_zero, false, Proto_Lap_Data_init_zero, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}}
 #define Proto_Update_Data_init_zero              {false, Proto_Car_Sensor_init_zero, false, Proto_Car_Sensor_init_zero, false, Proto_Car_Sensor_init_zero, false, Proto_Lap_Data_init_zero, false, Proto_Stint_Data_init_zero}
 #define Proto_Ack_Data_init_zero                 {false, 0}
 #define Proto_LoRa_Data_init_zero                {false, 0, false, 0, false, 0, false, Proto_Update_Data_init_zero, false, Proto_Command_init_zero, false, Proto_Ack_Data_init_zero}
@@ -241,6 +245,7 @@ extern "C" {
 #define Proto_Stint_Data_enabled_tag             2
 #define Proto_Stint_Data_target_tag              3
 #define Proto_Stint_Data_elapsed_tag             4
+#define Proto_Stint_Data_elapsed_timestamp_tag   5
 #define Proto_Lap_lap_no_tag                     1
 #define Proto_Lap_lap_time_ms_tag                2
 #define Proto_Lap_Data_lap_no_tag                1
@@ -249,14 +254,15 @@ extern "C" {
 #define Proto_Lap_Data_current_lap_snapshot_time_tag 4
 #define Proto_Lap_Data_laps_tag                  5
 #define Proto_Mcu_Data_network_time_adjustment_tag 1
-#define Proto_Mcu_Data_water_tag                 2
-#define Proto_Mcu_Data_oil_tag                   3
-#define Proto_Mcu_Data_gas_tag                   4
-#define Proto_Mcu_Data_stint_tag                 5
-#define Proto_Mcu_Data_lap_data_tag              6
-#define Proto_Mcu_Data_events_tag                7
-#define Proto_Mcu_Data_outgoing_commands_tag     8
-#define Proto_Mcu_Data_incoming_commands_tag     9
+#define Proto_Mcu_Data_send_timestamp_tag        2
+#define Proto_Mcu_Data_water_tag                 3
+#define Proto_Mcu_Data_oil_tag                   4
+#define Proto_Mcu_Data_gas_tag                   5
+#define Proto_Mcu_Data_stint_tag                 6
+#define Proto_Mcu_Data_lap_data_tag              7
+#define Proto_Mcu_Data_events_tag                8
+#define Proto_Mcu_Data_outgoing_commands_tag     9
+#define Proto_Mcu_Data_incoming_commands_tag     10
 #define Proto_Update_Data_water_sensor_tag       1
 #define Proto_Update_Data_oil_sensor_tag         2
 #define Proto_Update_Data_gas_sensor_tag         3
@@ -300,8 +306,9 @@ X(a, STATIC,   OPTIONAL, DOUBLE,   preassure,         2)
 #define Proto_Stint_Data_FIELDLIST(X, a) \
 X(a, STATIC,   OPTIONAL, BOOL,     running,           1) \
 X(a, STATIC,   OPTIONAL, BOOL,     enabled,           2) \
-X(a, STATIC,   OPTIONAL, INT64,    target,            3) \
-X(a, STATIC,   OPTIONAL, INT64,    elapsed,           4)
+X(a, STATIC,   OPTIONAL, UINT32,   target,            3) \
+X(a, STATIC,   OPTIONAL, UINT32,   elapsed,           4) \
+X(a, STATIC,   OPTIONAL, UINT32,   elapsed_timestamp,   5)
 #define Proto_Stint_Data_CALLBACK NULL
 #define Proto_Stint_Data_DEFAULT NULL
 
@@ -322,15 +329,16 @@ X(a, CALLBACK, REPEATED, MESSAGE,  laps,              5)
 #define Proto_Lap_Data_laps_MSGTYPE Proto_Lap
 
 #define Proto_Mcu_Data_FIELDLIST(X, a) \
-X(a, STATIC,   OPTIONAL, INT64,    network_time_adjustment,   1) \
-X(a, STATIC,   OPTIONAL, MESSAGE,  water,             2) \
-X(a, STATIC,   OPTIONAL, MESSAGE,  oil,               3) \
-X(a, STATIC,   OPTIONAL, MESSAGE,  gas,               4) \
-X(a, STATIC,   OPTIONAL, MESSAGE,  stint,             5) \
-X(a, STATIC,   OPTIONAL, MESSAGE,  lap_data,          6) \
-X(a, CALLBACK, REPEATED, MESSAGE,  events,            7) \
-X(a, CALLBACK, REPEATED, MESSAGE,  outgoing_commands,   8) \
-X(a, CALLBACK, REPEATED, MESSAGE,  incoming_commands,   9)
+X(a, STATIC,   OPTIONAL, UINT32,   network_time_adjustment,   1) \
+X(a, STATIC,   OPTIONAL, UINT32,   send_timestamp,    2) \
+X(a, STATIC,   OPTIONAL, MESSAGE,  water,             3) \
+X(a, STATIC,   OPTIONAL, MESSAGE,  oil,               4) \
+X(a, STATIC,   OPTIONAL, MESSAGE,  gas,               5) \
+X(a, STATIC,   OPTIONAL, MESSAGE,  stint,             6) \
+X(a, STATIC,   OPTIONAL, MESSAGE,  lap_data,          7) \
+X(a, CALLBACK, REPEATED, MESSAGE,  events,            8) \
+X(a, CALLBACK, REPEATED, MESSAGE,  outgoing_commands,   9) \
+X(a, CALLBACK, REPEATED, MESSAGE,  incoming_commands,  10)
 #define Proto_Mcu_Data_CALLBACK pb_default_field_callback
 #define Proto_Mcu_Data_DEFAULT NULL
 #define Proto_Mcu_Data_water_MSGTYPE Proto_Car_Sensor
@@ -419,7 +427,7 @@ extern const pb_msgdesc_t Proto_Message_msg;
 #define Proto_Car_Sensor_size                    15
 #define Proto_Command_size                       35
 #define Proto_Lap_size                           22
-#define Proto_Stint_Data_size                    26
+#define Proto_Stint_Data_size                    22
 
 #ifdef __cplusplus
 } /* extern "C" */

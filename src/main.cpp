@@ -39,7 +39,7 @@
 #define MAX_ITEMS 32
 #define MAX_READ_BYTES 100
 
-#define INTERVAL 2000
+#define INTERVAL 10000
 #define MAX_TIMEOUT 8000
 
 // Frequency in MHz. Keep the decimal point to designate float.
@@ -206,7 +206,6 @@ void handle_received_message(Proto_LoRa_Data incoming_data) {
 // 
 void process_received_message(const uint8_t *data, size_t length)
 {
-  u_int8_t buffer[length];
   bool status;
   if(data == NULL || length == 0) {
     return ;
@@ -215,10 +214,12 @@ void process_received_message(const uint8_t *data, size_t length)
   Serial.printf("Recieved message\n");
 
   Proto_LoRa_Data incoming_message = Proto_LoRa_Data_init_zero;
-  pb_istream_t stream = pb_istream_from_buffer(buffer, length);
+  pb_istream_t stream = pb_istream_from_buffer(data, length);
   status = pb_decode(&stream, Proto_LoRa_Data_fields, &incoming_message);
   if (status) {
     handle_received_message(incoming_message);
+  } else {
+    both.printf("Could not decode \n");
   }
 }
 
@@ -237,11 +238,13 @@ void comm_loop()
 {
   if(millis() > (last_tx + INTERVAL)) {
     bool message_sent = false;
-    Proto_Update_Data status_update = create_status_update();
     for (int i = 0; i < MAX_ITEMS; i++) {
       if (tx_queue[i] != NULL) {
-        tx_queue[i]->has_update_data = true;
-        tx_queue[i]->update_data = status_update;
+        #if (PRIMARY)
+          Proto_Update_Data status_update = create_status_update();
+          tx_queue[i]->has_update_data = true;
+          tx_queue[i]->update_data = status_update;
+        #endif
         transmit_message(tx_queue[i]);
         message_sent = true;
         if (do_not_ack_msg(tx_queue[i])) {
@@ -250,10 +253,12 @@ void comm_loop()
         }
       }
     }
-    if(!message_sent) {
-      both.printf("Sending out of turn");
-      send_update(status_update);
-    }
+    #if (PRIMARY)
+      if(!message_sent) {
+        both.printf("Sending out of turn");
+        send_update(create_status_update());
+      }
+    #endif
 
     last_tx = millis();
   }
@@ -270,9 +275,8 @@ void comm_loop()
       return;
     }
 
-    uint8_t* incoming_message = (uint8_t*)(packet_length);
-
-    radio.readData((uint8_t *)incoming_message , packet_length);
+    uint8_t incoming_message[packet_length];
+    radio.readData(incoming_message , packet_length);
 
     if (_radiolib_status == RADIOLIB_ERR_NONE)
     {
@@ -283,7 +287,6 @@ void comm_loop()
     }
     last_rx = millis();
     RADIOLIB_OR_HALT(radio.startReceive(RADIOLIB_SX126X_RX_TIMEOUT_INF));
-    free(incoming_message);
   }
 }
 
@@ -483,9 +486,7 @@ static void listen(void *pvParameters)
                         raddr_name, sizeof(raddr_name) - 1);
           }
           both.printf("[WIN] Rcv %dB from %s: \n", len, raddr_name);
-          #if PRIMARY
-            handle_proto(recvbuf, len);
-          #endif
+          handle_proto(recvbuf, len);
         }
       }
     }

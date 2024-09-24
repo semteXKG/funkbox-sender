@@ -104,7 +104,8 @@ typedef struct _Proto_Lap_Data {
     uint32_t current_lap_ms;
     bool has_current_lap_snapshot_time;
     uint32_t current_lap_snapshot_time;
-    pb_callback_t laps;
+    pb_size_t laps_count;
+    Proto_Lap laps[5];
 } Proto_Lap_Data;
 
 typedef struct _Proto_Mcu_Data {
@@ -210,7 +211,7 @@ extern "C" {
 #define Proto_Car_Sensor_init_default            {false, 0u, false, 0}
 #define Proto_Stint_Data_init_default            {false, 0, false, 0, false, 0, false, 0, false, 0}
 #define Proto_Lap_init_default                   {false, 0, false, 0}
-#define Proto_Lap_Data_init_default              {false, 0, false, 0, false, 0, false, 0, {{NULL}, NULL}}
+#define Proto_Lap_Data_init_default              {false, 0, false, 0, false, 0, false, 0, 0, {Proto_Lap_init_default, Proto_Lap_init_default, Proto_Lap_init_default, Proto_Lap_init_default, Proto_Lap_init_default}}
 #define Proto_Mcu_Data_init_default              {false, 0, false, 0, false, Proto_Car_Sensor_init_default, false, Proto_Car_Sensor_init_default, false, Proto_Car_Sensor_init_default, false, Proto_Stint_Data_init_default, false, Proto_Lap_Data_init_default, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}}
 #define Proto_Update_Data_init_default           {false, Proto_Car_Sensor_init_default, false, Proto_Car_Sensor_init_default, false, Proto_Car_Sensor_init_default, false, Proto_Lap_Data_init_default, false, Proto_Stint_Data_init_default}
 #define Proto_Ack_Data_init_default              {false, 0}
@@ -221,7 +222,7 @@ extern "C" {
 #define Proto_Car_Sensor_init_zero               {false, 0, false, 0}
 #define Proto_Stint_Data_init_zero               {false, 0, false, 0, false, 0, false, 0, false, 0}
 #define Proto_Lap_init_zero                      {false, 0, false, 0}
-#define Proto_Lap_Data_init_zero                 {false, 0, false, 0, false, 0, false, 0, {{NULL}, NULL}}
+#define Proto_Lap_Data_init_zero                 {false, 0, false, 0, false, 0, false, 0, 0, {Proto_Lap_init_zero, Proto_Lap_init_zero, Proto_Lap_init_zero, Proto_Lap_init_zero, Proto_Lap_init_zero}}
 #define Proto_Mcu_Data_init_zero                 {false, 0, false, 0, false, Proto_Car_Sensor_init_zero, false, Proto_Car_Sensor_init_zero, false, Proto_Car_Sensor_init_zero, false, Proto_Stint_Data_init_zero, false, Proto_Lap_Data_init_zero, {{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}}
 #define Proto_Update_Data_init_zero              {false, Proto_Car_Sensor_init_zero, false, Proto_Car_Sensor_init_zero, false, Proto_Car_Sensor_init_zero, false, Proto_Lap_Data_init_zero, false, Proto_Stint_Data_init_zero}
 #define Proto_Ack_Data_init_zero                 {false, 0}
@@ -323,8 +324,8 @@ X(a, STATIC,   OPTIONAL, INT32,    lap_no,            1) \
 X(a, STATIC,   OPTIONAL, UINT32,   best_lap_ms,       2) \
 X(a, STATIC,   OPTIONAL, UINT32,   current_lap_ms,    3) \
 X(a, STATIC,   OPTIONAL, UINT32,   current_lap_snapshot_time,   4) \
-X(a, CALLBACK, REPEATED, MESSAGE,  laps,              5)
-#define Proto_Lap_Data_CALLBACK pb_default_field_callback
+X(a, STATIC,   REPEATED, MESSAGE,  laps,              5)
+#define Proto_Lap_Data_CALLBACK NULL
 #define Proto_Lap_Data_DEFAULT NULL
 #define Proto_Lap_Data_laps_MSGTYPE Proto_Lap
 
@@ -417,17 +418,17 @@ extern const pb_msgdesc_t Proto_Message_msg;
 
 /* Maximum encoded size of messages (where known) */
 /* Proto_Event_size depends on runtime parameters */
-/* Proto_Lap_Data_size depends on runtime parameters */
 /* Proto_Mcu_Data_size depends on runtime parameters */
-/* Proto_Update_Data_size depends on runtime parameters */
-/* Proto_LoRa_Data_size depends on runtime parameters */
 /* Proto_Message_size depends on runtime parameters */
-#define MESSAGE_PB_H_MAX_SIZE                    Proto_Command_size
+#define MESSAGE_PB_H_MAX_SIZE                    Proto_LoRa_Data_size
 #define Proto_Ack_Data_size                      6
 #define Proto_Car_Sensor_size                    15
 #define Proto_Command_size                       35
+#define Proto_Lap_Data_size                      149
 #define Proto_Lap_size                           22
+#define Proto_LoRa_Data_size                     289
 #define Proto_Stint_Data_size                    22
+#define Proto_Update_Data_size                   227
 
 #ifdef __cplusplus
 } /* extern "C" */

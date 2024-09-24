@@ -194,7 +194,7 @@ void handle_received_message(Proto_LoRa_Data incoming_data) {
     }
     return;
   }
-
+  
   if(WiFi.status() != WL_CONNECTED) {
     both.printf("Not forwarding message as WLAN is not avail");
     return; 
@@ -467,7 +467,7 @@ static void listen(void *pvParameters)
         if (FD_ISSET(sock, &rfds))
         {
           // Incoming datagram received
-          uint8_t recvbuf[1500];
+          uint8_t recvbuf[500];
           char raddr_name[32] = {0};
           struct sockaddr_storage raddr; // Large enough for both IPv4 or IPv6
           socklen_t socklen = sizeof(raddr);
@@ -522,6 +522,7 @@ Proto_Update_Data create_status_update() {
   data.oil_sensor = persistent_state.oil;
   data.stint_data = persistent_state.stint;
   data.lap_data = persistent_state.lap_data;
+
   return data;
 }
 
@@ -531,7 +532,7 @@ void socketserver_send(Proto_LoRa_Data data) {
   Proto_Message proto_message = Proto_Message_init_zero;
   proto_message.has_lora_data = true;
   proto_message.lora_data = data;
-  uint8_t buffer[255];
+  uint8_t buffer[500];
   char addrbuf[32] = {0};
 
   pb_ostream_t stream = pb_ostream_from_buffer(buffer, sizeof(buffer));

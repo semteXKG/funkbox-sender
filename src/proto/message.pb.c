@@ -27,7 +27,7 @@ PB_BIND(Proto_Lap_Data, Proto_Lap_Data, AUTO)
 PB_BIND(Proto_Mcu_Data, Proto_Mcu_Data, 2)
 
 
-PB_BIND(Proto_Update_Data, Proto_Update_Data, AUTO)
+PB_BIND(Proto_Update_Data, Proto_Update_Data, 2)
 
 
 PB_BIND(Proto_Ack_Data, Proto_Ack_Data, AUTO)

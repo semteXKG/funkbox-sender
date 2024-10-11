@@ -15,5 +15,5 @@
         "pb_encode.h": "c",
         "pb.h": "c"
     },
-    "idf.portWin": "COM12"
+    "idf.portWin": "COM4"
 }

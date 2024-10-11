@@ -39,7 +39,7 @@
 #define MAX_ITEMS 32
 #define MAX_READ_BYTES 100
 
-#define INTERVAL 10000
+#define INTERVAL 1500
 #define MAX_TIMEOUT 8000
 
 // Frequency in MHz. Keep the decimal point to designate float.
@@ -92,7 +92,7 @@ void printBuffer(char* buffer, size_t start, size_t count) {
 }
 
 bool do_not_ack_msg(Proto_LoRa_Data* msg) {
-  return msg->requires_ack;
+  return !msg->requires_ack;
 }
 
 void rx()
@@ -108,21 +108,21 @@ void comm_setup()
   }
 
  
-  both.println("Radio init");
-  RADIOLIB_OR_HALT(radio.begin());
+  Serial.println("Radio init");
+  radio.begin();
   // Set the callback function for received packets
   radio.setDio1Action(rx);
   // Set radio parameters
-  both.printf("[LR] Frequency: %.2f MHz\n", FREQUENCY);
-  RADIOLIB_OR_HALT(radio.setFrequency(FREQUENCY));
-  both.printf("[LR] Bandwidth: %.1f kHz\n", BANDWIDTH);
-  RADIOLIB_OR_HALT(radio.setBandwidth(BANDWIDTH));
-  both.printf("[LR] Spreading Factor: %i\n", SPREADING_FACTOR);
-  RADIOLIB_OR_HALT(radio.setSpreadingFactor(SPREADING_FACTOR));
-  both.printf("[LR] TX power: %i dBm\n", TRANSMIT_POWER);
-  RADIOLIB_OR_HALT(radio.setOutputPower(TRANSMIT_POWER));
+  Serial.printf("[LR] Frequency: %.2f MHz\n", FREQUENCY);
+  radio.setFrequency(FREQUENCY);
+  Serial.printf("[LR] Bandwidth: %.1f kHz\n", BANDWIDTH);
+  radio.setBandwidth(BANDWIDTH);
+  Serial.printf("[LR] Spreading Factor: %i\n", SPREADING_FACTOR);
+  radio.setSpreadingFactor(SPREADING_FACTOR);
+  Serial.printf("[LR] TX power: %i dBm\n", TRANSMIT_POWER);
+  radio.setOutputPower(TRANSMIT_POWER);
   // Start receiving
-  RADIOLIB_OR_HALT(radio.startReceive(RADIOLIB_SX126X_RX_TIMEOUT_INF));
+  radio.startReceive(RADIOLIB_SX126X_RX_TIMEOUT_INF);
 }
 
 void free_message(Proto_LoRa_Data* data) {
@@ -131,6 +131,7 @@ void free_message(Proto_LoRa_Data* data) {
 
 void comm_enqueue_message(Proto_LoRa_Data *message)
 {
+  message->has_seq_nr = true;
   message->seq_nr = message_counter;
   int enq_pos = message_counter % MAX_ITEMS;
   Serial.printf("[TX QUEUE] Enqueing at pos: %d\n", enq_pos);
@@ -145,36 +146,36 @@ void transmit_message(Proto_LoRa_Data* message) {
   uint8_t buffer[128];
   size_t message_length;
   bool status;
-
   pb_ostream_t stream = pb_ostream_from_buffer(buffer, sizeof(buffer));
   status = pb_encode(&stream, Proto_LoRa_Data_fields, message);
-
   radio.clearDio1Action();
   heltec_led(50);
 
-
-  both.printf("[LR OUT] sending %d byte\n", stream.bytes_written);
+  message->has_send_timestamp = true;
+  message->send_timestamp = esp_timer_get_time() / 1000;
   tx_time = millis();
-  RADIOLIB(radio.transmit(buffer, stream.bytes_written));
+  Serial.printf("[LR OUT] sending %d byte\n", stream.bytes_written);
+  radio.transmit(buffer, stream.bytes_written);
   tx_time = millis() - tx_time;
   heltec_led(0);
   if (_radiolib_status == RADIOLIB_ERR_NONE) {
-    both.printf("[LR OUT] msg sent (%i ms)\n", (int)tx_time);
+    Serial.printf("[LR OUT] msg sent (%i ms)\n", (int)tx_time);
   }
   else {
-    both.printf("[LR OUT] msg failed (%i)\n", _radiolib_status);
+    Serial.printf("[LR OUT] msg failed (%i)\n", _radiolib_status);
   }
   radio.setDio1Action(rx);
-  RADIOLIB_OR_HALT(radio.startReceive(RADIOLIB_SX126X_RX_TIMEOUT_INF));
+  radio.startReceive(RADIOLIB_SX126X_RX_TIMEOUT_INF);
 }
 
 void send_ack(uint8_t seqNr)
 {
-  Serial.printf("Sending ack for %d\n", seqNr);
+  Serial.printf("[LR OUT] Sending ack for %d\n", seqNr);
   Proto_LoRa_Data* data = (Proto_LoRa_Data*) malloc(sizeof(Proto_LoRa_Data));
   *data = Proto_LoRa_Data_init_zero;
   data->ack_data.seq_nr = seqNr;
   data->ack_data.has_seq_nr = true;
+  data->has_ack_data = true;
   data->requires_ack = false;
   data->has_requires_ack = true;
   comm_enqueue_message(data);
@@ -184,7 +185,7 @@ void send_ack(uint8_t seqNr)
 void handle_received_message(Proto_LoRa_Data incoming_data) {
   if(incoming_data.has_ack_data) {
     int acked_seq_nr = incoming_data.ack_data.seq_nr;
-    Serial.printf("Got ACK Message for message %d\n", acked_seq_nr);
+    Serial.printf("[LR IN] Got ACK Message for message %d\n", acked_seq_nr);
     for (int i = 0; i < MAX_ITEMS; i++) {      
       if (tx_queue[i] != NULL && acked_seq_nr == tx_queue[i]->seq_nr) {
         free_message(tx_queue[i]);
@@ -194,11 +195,22 @@ void handle_received_message(Proto_LoRa_Data incoming_data) {
     }
     return;
   }
+
+  Serial.printf("[LR IN] Received hasMcu: %d hasCommand %d with seqno %d, requires ack: %d\n", incoming_data.has_update_data, incoming_data.has_command_data, incoming_data.seq_nr, incoming_data.requires_ack);
+  if(incoming_data.has_command_data) {
+    Serial.printf("[LR IN] Command type: %d\n", incoming_data.command_data.type);
+  }
+  
+  if(incoming_data.requires_ack) {
+    Serial.printf("[LR IN] Acking message\n");
+    send_ack(incoming_data.seq_nr);
+  }
   
   if(WiFi.status() != WL_CONNECTED) {
-    both.printf("Not forwarding message as WLAN is not avail");
+    Serial.printf("Not forwarding message as WLAN is not avail\n");
     return; 
   }
+
   socketserver_send(incoming_data);
 }
 
@@ -211,15 +223,13 @@ void process_received_message(const uint8_t *data, size_t length)
     return ;
   }
 
-  Serial.printf("Recieved message\n");
-
   Proto_LoRa_Data incoming_message = Proto_LoRa_Data_init_zero;
   pb_istream_t stream = pb_istream_from_buffer(data, length);
   status = pb_decode(&stream, Proto_LoRa_Data_fields, &incoming_message);
   if (status) {
     handle_received_message(incoming_message);
   } else {
-    both.printf("Could not decode \n");
+    Serial.printf("Could not decode \n");
   }
 }
 
@@ -232,22 +242,39 @@ void send_update(Proto_Update_Data update_data) {
   transmit_message(&lora_data);
 }
 
+bool should_send_message(Proto_LoRa_Data* data) {
+  if(!data->has_send_timestamp) {
+    Serial.printf("[LR OUT] Never Sent, Sending\n");
+    return true; 
+  }
+  int time_since_send = (esp_timer_get_time() / 1000) - data->send_timestamp;
+  Serial.printf("[LR OUT] time to resend: %d\n", time_since_send);
+  if(time_since_send > 4000) {
+    Serial.printf("[LR OUT] resending.\n");
+    return true;
+  }
+  return false;
+}
 // main communicator loop. processes the queue by sending out messages and reacts
 // if the received flag was raised by interrupt.
 void comm_loop()
 {
   if(millis() > (last_tx + INTERVAL)) {
     bool message_sent = false;
+    long start = millis();
     for (int i = 0; i < MAX_ITEMS; i++) {
-      if (tx_queue[i] != NULL) {
+      if (tx_queue[i] != NULL && should_send_message(tx_queue[i])) {
         #if (PRIMARY)
           Proto_Update_Data status_update = create_status_update();
           tx_queue[i]->has_update_data = true;
           tx_queue[i]->update_data = status_update;
         #endif
+
+        Serial.printf("[LR OUT] Sending idx: %d withi commandData: %d, updateData: %d, ackData: %d\n", i, tx_queue[i]->has_command_data, tx_queue[i]->has_update_data, tx_queue[i]->has_ack_data);
         transmit_message(tx_queue[i]);
         message_sent = true;
         if (do_not_ack_msg(tx_queue[i])) {
+          Serial.printf("[LR OUT] Freeing message\n");
           free_message(tx_queue[i]);
           tx_queue[i] = NULL;
         }
@@ -255,12 +282,13 @@ void comm_loop()
     }
     #if (PRIMARY)
       if(!message_sent) {
-        both.printf("Sending out of turn");
+        Serial.printf("[LR OUT] Sending out of turn\n");
         send_update(create_status_update());
       }
     #endif
 
     last_tx = millis();
+    Serial.printf("[LR OUT] run took: %d\n", last_tx - start);
   }
 
   if (received)
@@ -271,7 +299,7 @@ void comm_loop()
     Serial.printf("[LR IN] received %d bytes\n", packet_length);
     
     if (packet_length == 0) {
-      RADIOLIB_OR_HALT(radio.startReceive(RADIOLIB_SX126X_RX_TIMEOUT_INF));
+      radio.startReceive(RADIOLIB_SX126X_RX_TIMEOUT_INF);
       return;
     }
 
@@ -280,13 +308,13 @@ void comm_loop()
 
     if (_radiolib_status == RADIOLIB_ERR_NONE)
     {
-      both.printf("[LR IN]RX \n");
-      both.printf("[LR IN]  RSSI: %.2f dBm\n", radio.getRSSI());
-      both.printf("[LR IN]  SNR: %.2f dB\n", radio.getSNR());
+      Serial.printf("[LR IN]RX \n");
+      Serial.printf("[LR IN]  RSSI: %.2f dBm\n", radio.getRSSI());
+      Serial.printf("[LR IN]  SNR: %.2f dB\n", radio.getSNR());
       process_received_message(incoming_message, packet_length);
     }
     last_rx = millis();
-    RADIOLIB_OR_HALT(radio.startReceive(RADIOLIB_SX126X_RX_TIMEOUT_INF));
+    radio.startReceive(RADIOLIB_SX126X_RX_TIMEOUT_INF);
   }
 }
 
@@ -297,14 +325,14 @@ void comm_loop()
 //
 
 void wlan_setup() {
-  both.print("[WIN] Starting");
+  Serial.print("[WIN] Starting");
   WiFi.mode(WIFI_STA);
   WiFi.begin(CONFIG_SSID, CONFIG_PWD);
   int retryCnt = 0;
   
   do {
     delay(2000);
-    both.print(".");
+    Serial.print(".");
   } while (WiFi.status() != WL_CONNECTED || ++retryCnt == 10);
 
   WiFi.setAutoReconnect(true);
@@ -326,7 +354,7 @@ static int socket_add_ipv4_multicast_group(esp_netif_t* interface, int sock, boo
     esp_netif_ip_info_t ip_info = { 0 };
     err = esp_netif_get_ip_info(interface, &ip_info);
     if (err != ESP_OK) {
-        both.printf("[WIN] Failed to get IP address info. Error 0x%x\n", err);
+        Serial.printf("[WIN] Failed to get IP address info. Error 0x%x\n", err);
         goto err;
     }
     inet_addr_from_ip4addr(&iaddr, &ip_info.ip);
@@ -334,14 +362,14 @@ static int socket_add_ipv4_multicast_group(esp_netif_t* interface, int sock, boo
     // Configure multicast address to listen to
     err = inet_aton(MULTICAST_IPV4_ADDR, &imreq.imr_multiaddr.s_addr);
     if (err != 1) {
-        both.printf("[WIN] Configured IPV4 multicast address '%s' is invalid.\n", MULTICAST_IPV4_ADDR);
+        Serial.printf("[WIN] Configured IPV4 multicast address '%s' is invalid.\n", MULTICAST_IPV4_ADDR);
         // Errors in the return value have to be negative
         err = -1;
         goto err;
     }
-    both.printf("[WIN] Configured IPV4 Multicast address %s\n", inet_ntoa(imreq.imr_multiaddr.s_addr));
+    Serial.printf("[WIN] Configured IPV4 Multicast address %s\n", inet_ntoa(imreq.imr_multiaddr.s_addr));
     if (!IP_MULTICAST(ntohl(imreq.imr_multiaddr.s_addr))) {
-        both.printf("[WIN] Configured IPV4 multicast address '%s' is not a valid multicast address. This will probably not work.\n", MULTICAST_IPV4_ADDR);
+        Serial.printf("[WIN] Configured IPV4 multicast address '%s' is not a valid multicast address. This will probably not work.\n", MULTICAST_IPV4_ADDR);
     }
 
     if (assign_source_if) {
@@ -350,7 +378,7 @@ static int socket_add_ipv4_multicast_group(esp_netif_t* interface, int sock, boo
         err = setsockopt(sock, IPPROTO_IP, IP_MULTICAST_IF, &iaddr,
                          sizeof(struct in_addr));
         if (err < 0) {
-            both.printf("[WIN] Failed to set IP_MULTICAST_IF. Error %d\n", errno);
+            Serial.printf("[WIN] Failed to set IP_MULTICAST_IF. Error %d\n", errno);
             goto err;
         }
     }
@@ -358,7 +386,7 @@ static int socket_add_ipv4_multicast_group(esp_netif_t* interface, int sock, boo
     err = setsockopt(sock, IPPROTO_IP, IP_ADD_MEMBERSHIP,
                          &imreq, sizeof(struct ip_mreq));
     if (err < 0) {
-        both.printf("[WIN] Failed to set IP_ADD_MEMBERSHIP. Error %d\n", errno);
+        Serial.printf("[WIN] Failed to set IP_ADD_MEMBERSHIP. Error %d\n", errno);
         goto err;
     }
 
@@ -374,7 +402,7 @@ static int create_multicast_ipv4_socket(esp_netif_t *interface)
   sock = socket(PF_INET, SOCK_DGRAM, IPPROTO_IP);
   if (sock < 0)
   {
-    both.printf("[WIN] Failed to create socket. Error %d\n", errno);
+    Serial.printf("[WIN] Failed to create socket. Error %d\n", errno);
     return -1;
   }
 
@@ -387,7 +415,7 @@ static int create_multicast_ipv4_socket(esp_netif_t *interface)
   uint8_t ttl = MULTICAST_TTL;
   if (err < 0)
   {
-    both.printf("[WIN] Failed to bind socket. Error %d\n", errno);
+    Serial.printf("[WIN] Failed to bind socket. Error %d\n", errno);
     goto err;
   }
 
@@ -395,7 +423,7 @@ static int create_multicast_ipv4_socket(esp_netif_t *interface)
   setsockopt(sock, IPPROTO_IP, IP_MULTICAST_TTL, &ttl, sizeof(uint8_t));
   if (err < 0)
   {
-    both.printf("[WIN] Failed to set IP_MULTICAST_TTL. Error %d\n", errno);
+    Serial.printf("[WIN] Failed to set IP_MULTICAST_TTL. Error %d\n", errno);
     goto err;
   }
 
@@ -424,7 +452,7 @@ static void listen(void *pvParameters)
     sock = create_multicast_ipv4_socket(interface);
     if (sock < 0)
     {
-      both.printf("[WIN] Failed to create IPv4 multicast socket\n");
+      Serial.printf("[WIN] Failed to create IPv4 multicast socket\n");
     }
 
     if (sock < 0)
@@ -458,7 +486,7 @@ static void listen(void *pvParameters)
       int s = select(sock + 1, &rfds, NULL, NULL, &tv);
       if (s < 0)
       {
-        both.printf("[WIN] Select failed: errno %d\n", errno);
+        Serial.printf("[WIN] Select failed: errno %d\n", errno);
         err = -1;
         break;
       }
@@ -475,7 +503,7 @@ static void listen(void *pvParameters)
                              (struct sockaddr *)&raddr, &socklen);
           if (len < 0)
           {
-            both.printf("[WIN] multicast recvfrom failed: errno %d\n", errno);
+            Serial.printf("[WIN] multicast recvfrom failed: errno %d\n", errno);
             err = -1;
             break;
           }
@@ -485,14 +513,14 @@ static void listen(void *pvParameters)
             inet_ntoa_r(((struct sockaddr_in *)&raddr)->sin_addr,
                         raddr_name, sizeof(raddr_name) - 1);
           }
-          both.printf("[WIN] Rcv %dB from %s: \n", len, raddr_name);
+          //Serial.printf("[WIN] Rcv %dB from %s: \n", len, raddr_name);
           handle_proto(recvbuf, len);
         }
       }
     }
   }
 
-  both.printf("Shutting down socket and restarting...");
+  Serial.printf("Shutting down socket and restarting...");
   shutdown(sock, 0);
   close(sock);
 }
@@ -502,11 +530,21 @@ void handle_proto(uint8_t* message, size_t length) {
   pb_istream_t stream = pb_istream_from_buffer(message, length);
   bool status = pb_decode(&stream, Proto_Message_fields, &decoded_message);
   if(!status) {
-    both.printf("Could not decode message");
+    Serial.printf("Could not decode message");
     return;
   }
-
-  persistent_state = decoded_message.mcu_data;
+  if(decoded_message.has_mcu_data) {
+    persistent_state = decoded_message.mcu_data;
+  } else if (decoded_message.has_command_data) {
+    Serial.printf("Command Data Received from MCU, type %d\n", decoded_message.command_data.type);
+    Proto_LoRa_Data* lora_data = (Proto_LoRa_Data*) malloc(sizeof(Proto_LoRa_Data));
+    *lora_data = Proto_LoRa_Data_init_zero;
+    lora_data->has_requires_ack = true;
+    lora_data->requires_ack = true;
+    lora_data->has_command_data = true;
+    lora_data->command_data = decoded_message.command_data;
+    comm_enqueue_message(lora_data);
+  }
 }
 
 Proto_Update_Data create_status_update() {
@@ -516,6 +554,9 @@ Proto_Update_Data create_status_update() {
   data.has_water_sensor = persistent_state.has_water;
   data.has_stint_data = persistent_state.has_stint;
   data.has_lap_data = persistent_state.has_lap_data;
+
+  data.has_gps_data = persistent_state.has_gps;
+  data.gps_data = persistent_state.gps;
 
   data.gas_sensor = persistent_state.gas;
   data.water_sensor = persistent_state.water;
@@ -540,9 +581,7 @@ void socketserver_send(Proto_LoRa_Data data) {
 
   if(!status) {
     Serial.println("Could not encode Proto");
-  } else {
-    Serial.printf("Sending %d bytes over wifi\n", stream.bytes_written);
-  }
+  } 
 
    struct addrinfo hints = {
       .ai_flags = AI_PASSIVE,
@@ -558,23 +597,22 @@ void socketserver_send(Proto_LoRa_Data data) {
                         &res);
   if (err < 0)
   {
-    both.printf("[WOUT] getaddrinfo() failed for IPV4 destination address. error: %d\n", err);
+    Serial.printf("[WOUT] getaddrinfo() failed for IPV4 destination address. error: %d\n", err);
     return;
   }
   if (res == 0)
   {
-    both.printf("[WOUT] getaddrinfo() did not return any addresses\n");
+    Serial.printf("[WOUT] getaddrinfo() did not return any addresses\n");
     return;
   }
 
   ((struct sockaddr_in *)res->ai_addr)->sin_port = htons(UDP_PORT);
   inet_ntoa_r(((struct sockaddr_in *)res->ai_addr)->sin_addr, addrbuf, sizeof(addrbuf) - 1);
-  both.printf("[WOUT] Sending to IPV4 multicast address %s:%d...\n", addrbuf, UDP_PORT);
   err = sendto(sock, buffer, stream.bytes_written, 0, res->ai_addr, res->ai_addrlen);
   freeaddrinfo(res);
   if (err < 0)
   {
-    both.printf("[WOUT] IPV4 sendto failed. errno: %d\n", errno);
+    Serial.printf("[WOUT] IPV4 sendto failed. errno: %d\n", errno);
     return;
   }
 }

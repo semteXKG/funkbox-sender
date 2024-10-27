@@ -49,16 +49,16 @@
 
 // LR bandwidth. Keep the decimal point to designate float.
 // Allowed values are 7.8, 10.4, 15.6, 20.8, 31.25, 41.7, 62.5, 125.0, 250.0 and 500.0 kHz.
-#define BANDWIDTH 250.0
+//#define BANDWIDTH 250.0
 
 // Number from 5 to 12. Higher means slower but higher "processor gain",
 // meaning (in nutshell) longer range and more robust against interference.
-#define SPREADING_FACTOR 10
+//#define SPREADING_FACTOR 10
 
 // This value can be set anywhere between -9 dBm (0.125 mW) to 22 dBm (158 mW).
 // Note that the maximum ERP (which is what your antenna maximally radiates) on the
 // EU ISM band is 25 mW, and that transmissting without an antenna can damage your hardware.
-#define TRANSMIT_POWER 0
+//#define TRANSMIT_POWER 0
 
 Proto_LoRa_Data* tx_queue[MAX_ITEMS];
 uint64_t message_counter = 0;
@@ -66,6 +66,7 @@ unsigned long tx_time = 0;
 unsigned long last_rx = 0;
 unsigned long last_tx = 0;
 
+boolean setup_done = false;
 boolean rx_in_progress = false;
 volatile boolean received = false;
 String rxString;
@@ -100,29 +101,31 @@ void rx()
   received = true;
 }
 
-void comm_setup()
-{
-  //memset(tx_queue, 0, sizeof(payloaded_message *) * MAX_ITEMS);
+void queue_setup() {
   for (int i = 0; i < MAX_ITEMS; i ++) {
     tx_queue[i] = NULL;
   }
 
- 
+}
+
+void comm_start(double bandwith, int16_t spreading_factor, int16_t power)
+{
   Serial.println("Radio init");
   radio.begin();
   // Set the callback function for received packets
   radio.setDio1Action(rx);
   // Set radio parameters
   Serial.printf("[LR] Frequency: %.2f MHz\n", FREQUENCY);
-  radio.setFrequency(FREQUENCY);
-  Serial.printf("[LR] Bandwidth: %.1f kHz\n", BANDWIDTH);
-  radio.setBandwidth(BANDWIDTH);
-  Serial.printf("[LR] Spreading Factor: %i\n", SPREADING_FACTOR);
-  radio.setSpreadingFactor(SPREADING_FACTOR);
-  Serial.printf("[LR] TX power: %i dBm\n", TRANSMIT_POWER);
-  radio.setOutputPower(TRANSMIT_POWER);
+  RADIOLIB_OR_HALT(radio.setFrequency(FREQUENCY));
+  Serial.printf("[LR] Bandwidth: %.1f kHz\n", bandwith);
+  RADIOLIB_OR_HALT(radio.setBandwidth(bandwith));
+  Serial.printf("[LR] Spreading Factor: %i\n", spreading_factor);
+  RADIOLIB_OR_HALT(radio.setSpreadingFactor(spreading_factor));
+  Serial.printf("[LR] TX power: %i dBm\n", power);
+  RADIOLIB_OR_HALT(radio.setOutputPower(power));
   // Start receiving
   radio.startReceive(RADIOLIB_SX126X_RX_TIMEOUT_INF);
+  setup_done = true;
 }
 
 void free_message(Proto_LoRa_Data* data) {
@@ -259,6 +262,10 @@ bool should_send_message(Proto_LoRa_Data* data) {
 // if the received flag was raised by interrupt.
 void comm_loop()
 {
+  if(!setup_done) {
+    return;
+  }
+   
   if(millis() > (last_tx + INTERVAL)) {
     bool message_sent = false;
     long start = millis();
@@ -525,6 +532,20 @@ static void listen(void *pvParameters)
   close(sock);
 }
 
+void handle_lora_config(Proto_Lora_Config lora_config) {
+  if (persistent_state.lora_config.bandwidth != lora_config.bandwidth ||
+      persistent_state.lora_config.spreading_factor != lora_config.spreading_factor || 
+      persistent_state.lora_config.output_power != lora_config.output_power) {
+    if (setup_done) {
+      Serial.println("Config changed but setup was done, restarting");
+      esp_restart();
+    } else {
+      Serial.println("Starting LoRa");
+      comm_start(lora_config.bandwidth, lora_config.spreading_factor, lora_config.output_power);
+    }
+  }
+}
+
 void handle_proto(uint8_t* message, size_t length) {
   Proto_Message decoded_message = Proto_Message_init_zero;
   pb_istream_t stream = pb_istream_from_buffer(message, length);
@@ -534,6 +555,7 @@ void handle_proto(uint8_t* message, size_t length) {
     return;
   }
   if(decoded_message.has_mcu_data) {
+    handle_lora_config(decoded_message.mcu_data.lora_config);
     persistent_state = decoded_message.mcu_data;
   } else if (decoded_message.has_command_data) {
     Serial.printf("Command Data Received from MCU, type %d\n", decoded_message.command_data.type);
@@ -644,7 +666,7 @@ void print_status() {
 void setup()
 {
   heltec_setup();
-  comm_setup();
+  queue_setup();
   wlan_setup();
   socketserver_start();
   print_status();

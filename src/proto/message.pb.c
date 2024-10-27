@@ -27,6 +27,9 @@ PB_BIND(Proto_Lap_Data, Proto_Lap_Data, AUTO)
 PB_BIND(Proto_Gps_Data, Proto_Gps_Data, AUTO)
 
 
+PB_BIND(Proto_Lora_Config, Proto_Lora_Config, AUTO)
+
+
 PB_BIND(Proto_Mcu_Data, Proto_Mcu_Data, 2)
 
 

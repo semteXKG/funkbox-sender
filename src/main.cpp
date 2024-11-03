@@ -76,7 +76,8 @@ char empty[2] = "";
 Proto_Mcu_Data persistent_state;
 Proto_Mcu_Data incoming_state; 
 
-void socketserver_send(Proto_LoRa_Data message);
+void socketserver_send_lora(Proto_LoRa_Data message);
+void socketserver_send(Proto_Message message);
 void handle_proto(uint8_t* message, size_t length);
 void handle_command(char* message);
 Proto_Update_Data create_status_update();
@@ -214,7 +215,7 @@ void handle_received_message(Proto_LoRa_Data incoming_data) {
     return; 
   }
 
-  socketserver_send(incoming_data);
+  socketserver_send_lora(incoming_data);
 }
 
 // splits the string into various sub - messages and processes them
@@ -318,6 +319,17 @@ void comm_loop()
       Serial.printf("[LR IN]RX \n");
       Serial.printf("[LR IN]  RSSI: %.2f dBm\n", radio.getRSSI());
       Serial.printf("[LR IN]  SNR: %.2f dB\n", radio.getSNR());
+      
+      Proto_Message message = Proto_Message_init_default;
+      message.has_lora_stats = true;
+      Proto_Lora_Stats lora_stats = Proto_Lora_Stats_init_default;
+      lora_stats.has_rssi = true;
+      lora_stats.has_snr = true;
+      lora_stats.snr = radio.getSNR();
+      lora_stats.has_rssi = radio.getRSSI();
+      message.lora_stats = lora_stats;
+
+      socketserver_send(message);
       process_received_message(incoming_message, packet_length);
     }
     last_rx = millis();
@@ -589,17 +601,20 @@ Proto_Update_Data create_status_update() {
   return data;
 }
 
-
-void socketserver_send(Proto_LoRa_Data data) {
-  static int send_count;
+void socketserver_send_lora(Proto_LoRa_Data data) {
   Proto_Message proto_message = Proto_Message_init_zero;
   proto_message.has_lora_data = true;
   proto_message.lora_data = data;
+  socketserver_send(proto_message);
+}
+
+void socketserver_send(Proto_Message data) {
+  static int send_count;
   uint8_t buffer[500];
   char addrbuf[32] = {0};
 
   pb_ostream_t stream = pb_ostream_from_buffer(buffer, sizeof(buffer));
-  bool status = pb_encode(&stream, Proto_Message_fields, &proto_message);
+  bool status = pb_encode(&stream, Proto_Message_fields, &data);
 
   if(!status) {
     Serial.println("Could not encode Proto");
@@ -641,7 +656,7 @@ void socketserver_send(Proto_LoRa_Data data) {
 
 void socketserver_start() {
   esp_netif_t *netif = esp_netif_get_handle_from_ifkey("WIFI_AP_DEF");
-  xTaskCreate(&listen, "listen_task", 4096, netif, 5, NULL);
+  xTaskCreate(&listen, "listen_task", 8192, netif, 5, NULL);
 }
 
 
@@ -662,6 +677,8 @@ void print_status() {
     Serial.printf("|--------------------------------------------------------|\n");
     Serial.printf("----------------------------------------------------------\n");
 }
+
+SET_LOOP_TASK_STACK_SIZE(1024 * 16);
 
 void setup()
 {

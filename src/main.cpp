@@ -39,8 +39,8 @@
 #define MAX_ITEMS 32
 #define MAX_READ_BYTES 100
 
-#define INTERVAL 1500
-#define MAX_TIMEOUT 8000
+#define INTERVAL 5000
+#define MAX_TIMEOUT 15000
 
 // Frequency in MHz. Keep the decimal point to designate float.
 // Check your own rules and regulations to see what is legal where you are.
@@ -133,8 +133,27 @@ void free_message(Proto_LoRa_Data* data) {
   free(data);
 }
 
+bool queue_has_command(Proto_Command_Type command_type) {
+  for (int i = 0; i < MAX_ITEMS; i++) {
+    if(tx_queue[i] != NULL 
+        && tx_queue[i]->has_command_data 
+        && tx_queue[i]->command_data.type == command_type) {
+          return true;
+        }
+  }
+  return false;
+}
+
+
 void comm_enqueue_message(Proto_LoRa_Data *message)
 {
+  if (message->has_command_data) {
+    if(queue_has_command(message->command_data.type)) {
+      Serial.printf("[TX QUEUE] Command already enqueued, skipping: %d\n", message->command_data.type);    
+      return;
+    }
+  }
+
   message->has_seq_nr = true;
   message->seq_nr = message_counter;
   int enq_pos = message_counter % MAX_ITEMS;
@@ -259,6 +278,9 @@ bool should_send_message(Proto_LoRa_Data* data) {
   }
   return false;
 }
+
+
+
 // main communicator loop. processes the queue by sending out messages and reacts
 // if the received flag was raised by interrupt.
 void comm_loop()
@@ -272,13 +294,7 @@ void comm_loop()
     long start = millis();
     for (int i = 0; i < MAX_ITEMS; i++) {
       if (tx_queue[i] != NULL && should_send_message(tx_queue[i])) {
-        #if (PRIMARY)
-          Proto_Update_Data status_update = create_status_update();
-          tx_queue[i]->has_update_data = true;
-          tx_queue[i]->update_data = status_update;
-        #endif
-
-        Serial.printf("[LR OUT] Sending idx: %d withi commandData: %d, updateData: %d, ackData: %d\n", i, tx_queue[i]->has_command_data, tx_queue[i]->has_update_data, tx_queue[i]->has_ack_data);
+        Serial.printf("[LR OUT] Sending idx: %d with commandData: %d, updateData: %d, ackData: %d\n", i, tx_queue[i]->has_command_data, tx_queue[i]->has_update_data, tx_queue[i]->has_ack_data);
         transmit_message(tx_queue[i]);
         message_sent = true;
         if (do_not_ack_msg(tx_queue[i])) {
@@ -326,7 +342,7 @@ void comm_loop()
       lora_stats.has_rssi = true;
       lora_stats.has_snr = true;
       lora_stats.snr = radio.getSNR();
-      lora_stats.has_rssi = radio.getRSSI();
+      lora_stats.rssi = radio.getRSSI();
       message.lora_stats = lora_stats;
 
       socketserver_send(message);

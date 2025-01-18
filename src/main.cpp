@@ -23,13 +23,9 @@
 #include "pb_decode.h"
 #include "pb_encode.h"
 
-#if (PRIMARY)
-    #define CONFIG_SSID "funkbox-car-prim"
-    #define CONFIG_PWD "funkbox-car-prim"
-#else
-    #define CONFIG_SSID "funkbox-car-sec"
-    #define CONFIG_PWD "funkbox-car-sec"
-#endif
+char WLAN_SSID_RES[50] = {};
+char WLAN_PWD_RES[50] = {};
+
 
 #define UDP_PORT 3333
 
@@ -359,10 +355,24 @@ void comm_loop()
 //
 //
 
+void extract_credentials() {
+        strcpy(WLAN_SSID_RES, CONFIG_SSID);
+        strcpy(WLAN_PWD_RES, CONFIG_PWD);
+        
+        #if PRIMARY
+            strcat(WLAN_SSID_RES, "prim");
+            strcat(WLAN_PWD_RES, "prim");
+        #else
+            strcat(WLAN_SSID_RES, "sec");
+            strcat(WLAN_PWD_RES, "sec");
+        #endif
+}
+
 void wlan_setup() {
   Serial.print("[WIN] Starting");
+  extract_credentials();
   WiFi.mode(WIFI_STA);
-  WiFi.begin(CONFIG_SSID, CONFIG_PWD);
+  WiFi.begin(WLAN_SSID_RES, WLAN_PWD_RES);
   int retryCnt = 0;
   
   do {

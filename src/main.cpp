@@ -371,6 +371,7 @@ void extract_credentials() {
 void wlan_setup() {
   Serial.print("[WIN] Starting");
   extract_credentials();
+  Serial.printf("User: %s, Pass: %s", WLAN_SSID_RES, WLAN_PWD_RES);
   WiFi.mode(WIFI_STA);
   WiFi.begin(WLAN_SSID_RES, WLAN_PWD_RES);
   int retryCnt = 0;
